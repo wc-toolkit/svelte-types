@@ -20,54 +20,96 @@ const DEFAULT_OPTIONS: JsxTypesOptions = {
   exclude: [],
   prefix: "",
   suffix: "",
-  exactOptionalPropertyTypes: false,
 };
 
 /**
- * Appends `| undefined` to a type expression when `exactOptionalPropertyTypes`
- * is enabled, so JSX optional props accept explicit `undefined` values.
+ * Appends `| undefined` to a type expression so JSX optional props accept
+ * explicit `undefined` values under TypeScript's `exactOptionalPropertyTypes`.
+ *
+ * Since `prop?: T | undefined` is behaviorally identical to `prop?: T` when
+ * the flag is off and fixes TS2375 when it's on, we always emit `| undefined`
+ * for maximum downstream compatibility.
  *
  * - Function/arrow types are wrapped in parentheses to avoid changing the
  *   precedence of `| undefined` (e.g. `((e: T) => void) | undefined`).
  * - Types that already terminate in `undefined` are left untouched to avoid
  *   producing `X | undefined | undefined`.
  */
-function appendUndefined(type: string, enabled?: boolean): string {
-  if (!enabled) {
+function appendUndefined(type: string): string {
+  const trimmed = type.trim();
+
+  if (trimmed === "undefined" || /\|\s*undefined\s*\)*\s*$/.test(trimmed)) {
     return type;
   }
-
-  const trimmed = type.trim();
 
   if (trimmed.includes("=>")) {
     return `(${type}) | undefined`;
-  }
-
-  if (/\bundefined\s*$/.test(trimmed)) {
-    return type;
   }
 
   return `${type} | undefined`;
 }
 
 /**
- * Applies {@link appendUndefined} to every optional property declaration line
+ * Applies {@link appendUndefined} to every optional property declaration
  * (`name?: Type;`) in a static template string such as `GLOBAL_PROPS`.
+ *
+ * Uses a bracket-depth tracker to correctly handle multi-line type expressions
+ * (e.g. user-supplied `globalEvents` with object literal, generic, or
+ * parenthesized union types spanning multiple lines) rather than a
+ * line-by-line regex.
  */
-function appendUndefinedToTemplate(template: string, enabled?: boolean): string {
-  if (!enabled) {
-    return template;
+function appendUndefinedToTemplate(template: string): string {
+  const lines = template.split("\n");
+  const result: string[] = [];
+  let accumulated: string[] = [];
+  let depth = 0;
+
+  const flush = () => {
+    if (accumulated.length === 0) return;
+
+    const block = accumulated.join("\n");
+    accumulated = [];
+
+    const match =
+      /^(\s*(?:"[^"]+"|[a-zA-Z_$][\w$-]*)\?:\s*)([\s\S]+);\s*$/.exec(block);
+
+    if (match) {
+      result.push(`${match[1]}${appendUndefined(match[2])};`);
+    } else {
+      result.push(block);
+    }
+  };
+
+  const processSingleLine = (line: string) => {
+    const match =
+      /^(\s*(?:"[^"]+"|[a-zA-Z_$][\w$-]*)\?:\s*)(.+);\s*$/.exec(line);
+
+    if (match) {
+      result.push(`${match[1]}${appendUndefined(match[2])};`);
+    } else {
+      result.push(line);
+    }
+  };
+
+  for (const line of lines) {
+    const opens = (line.match(/[<{(]/g) || []).length;
+    const closes = (line.match(/[>})]/g) || []).length;
+
+    if (depth === 0 && opens === 0) {
+      flush();
+      processSingleLine(line);
+    } else {
+      accumulated.push(line);
+      depth += opens - closes;
+      if (depth <= 0) {
+        depth = 0;
+        flush();
+      }
+    }
   }
 
-  const propLine = /^(\s*(?:"[^"]+"|[a-zA-Z_$][\w$-]*)\?:\s*)(.+);\s*$/;
-
-  return template
-    .split("\n")
-    .map((line) => {
-      const match = propLine.exec(line);
-      return match ? `${match[1]}${appendUndefined(match[2], true)};` : line;
-    })
-    .join("\n");
+  flush();
+  return result.join("\n");
 }
 
 /**
@@ -316,12 +358,12 @@ ${
 }
 
 type BaseProps<T extends HTMLElement> = {
-${appendUndefinedToTemplate(GLOBAL_PROPS, options.exactOptionalPropertyTypes)}
+${appendUndefinedToTemplate(GLOBAL_PROPS)}
 } ${options.allowUnknownProps ? `& Record<string, any>` : ""};
 
 type BaseEvents = {
-${appendUndefinedToTemplate(options.includeDefaultDOMEvents ? GLOBAL_EVENTS : "", options.exactOptionalPropertyTypes)}
-${appendUndefinedToTemplate(Object.hasOwn(options, "globalEvents") ? options.globalEvents ?? "" : "", options.exactOptionalPropertyTypes)}
+${appendUndefinedToTemplate(options.includeDefaultDOMEvents ? GLOBAL_EVENTS : "")}
+${appendUndefinedToTemplate(Object.hasOwn(options, "globalEvents") ? options.globalEvents ?? "" : "")}
 };
 
 ${components
@@ -351,7 +393,7 @@ ${(() => {
     const description = getMemberDescription(prop.description, prop.deprecated);
     const typeInfo = getResolvedPropType(prop, options);
     const type = getPropType(component.name, prop, typeInfo, options);
-    const undefinedType = appendUndefined(type, options.exactOptionalPropertyTypes);
+    const undefinedType = appendUndefined(type);
 
     // Check if we already have this property in the accumulator
     const propExists = acc.includes(`  "${prop.propName}"?:`);
@@ -393,7 +435,7 @@ ${
         component.name,
         options.stronglyTypedEvents,
       )}) => void`;
-      const undefinedHandlerType = appendUndefined(eventHandlerType, options.exactOptionalPropertyTypes);
+      const undefinedHandlerType = appendUndefined(eventHandlerType);
       solidTypes += `  /** ${getMemberDescription(
         event.description,
         event.deprecated,
@@ -412,9 +454,9 @@ ${
 export type ${component.name}SolidJsProps = {
 ${solidTypes}
   /** Set the innerHTML of the element */
-  innerHTML?: ${appendUndefined("string", options.exactOptionalPropertyTypes)};
+  innerHTML?: ${appendUndefined("string")};
   /** Set the textContent of the element */
-  textContent?: ${appendUndefined("string | number", options.exactOptionalPropertyTypes)};
+  textContent?: ${appendUndefined("string | number")};
 }`;
   })
   .join("\n")}
@@ -482,7 +524,7 @@ ${(() => {
         uniqueCssProperties.add(property.name);
         cssPropertiesArray.push(
           `  /** ${getMemberDescription(property.description, property.deprecated)} */
-  "${property.name}"?: ${appendUndefined("string", options.exactOptionalPropertyTypes)};`,
+  "${property.name}"?: ${appendUndefined("string")};`,
         );
       }
     });

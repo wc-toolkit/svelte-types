@@ -217,7 +217,7 @@ describe("generateJsxTypes", () => {
       fileName: undefined,
     });
 
-    expect(template).toContain('role?: string;');
+    expect(template).toContain('role?: string | undefined;');
   });
 
   it("keeps component property references by default", () => {
@@ -225,8 +225,8 @@ describe("generateJsxTypes", () => {
       fileName: undefined,
     });
 
-    expect(template).toContain(`"text"?: Button['text'];`);
-    expect(template).toContain(`"variant"?: Button['variant'];`);
+    expect(template).toContain(`"text"?: Button['text'] | undefined;`);
+    expect(template).toContain(`"variant"?: Button['variant'] | undefined;`);
   });
 
   it("uses manifest prop types when useCemTypes is enabled", () => {
@@ -235,8 +235,10 @@ describe("generateJsxTypes", () => {
       useCemTypes: true,
     });
 
-    expect(template).toContain('"text"?: string;');
-    expect(template).toContain('"variant"?: "primary" | "secondary";');
+    expect(template).toContain('"text"?: string | undefined;');
+    expect(template).toContain(
+      '"variant"?: "primary" | "secondary" | undefined;',
+    );
   });
 
   it("uses the configured CEM type source when typesSrc is provided", () => {
@@ -246,7 +248,9 @@ describe("generateJsxTypes", () => {
       typesSrc: "parsedType",
     });
 
-    expect(template).toContain('"variant"?: "primary" | "secondary";');
+    expect(template).toContain(
+      '"variant"?: "primary" | "secondary" | undefined;',
+    );
     expect(template).not.toContain('"variant"?: ButtonVariant;');
   });
 
@@ -263,7 +267,7 @@ describe("generateJsxTypes", () => {
       'import type { ButtonSize } from "src/button-types.js";',
     );
     expect(template).toContain('"variant"?: ButtonVariant | undefined;');
-    expect(template).toContain('"size"?: ButtonSize;');
+    expect(template).toContain('"size"?: ButtonSize | undefined;');
   });
 
   it("imports a named CustomEvent detail type alongside the component", () => {
@@ -334,35 +338,23 @@ describe("generateJsxTypes", () => {
       /import type \{ [^}]*MyDetail[^}]*\} from "src\/my-button.ts"/,
     );
     expect(template).toContain(
-      '  "onmy-change"?: (e: CustomEvent<MyDetail>) => void;',
+      '  "onmy-change"?: ((e: CustomEvent<MyDetail>) => void) | undefined;',
     );
   });
 
-  it("appends | undefined to optional props when exactOptionalPropertyTypes is enabled", () => {
+  it("appends | undefined to optional props", () => {
     const template = generateJsxTypes(jsDocManifest, {
       fileName: undefined,
-      exactOptionalPropertyTypes: true,
     });
 
     expect(template).toContain(`"text"?: Button['text'] | undefined;`);
     expect(template).toContain(`"variant"?: Button['variant'] | undefined;`);
   });
 
-  it("does not append | undefined when exactOptionalPropertyTypes is disabled", () => {
-    const template = generateJsxTypes(jsDocManifest, {
-      fileName: undefined,
-      exactOptionalPropertyTypes: false,
-    });
-
-    expect(template).toContain(`"text"?: Button['text'];`);
-    expect(template).toContain(`"variant"?: Button['variant'];`);
-  });
-
   it("does not duplicate | undefined when the CEM type already includes undefined", () => {
     const template = generateJsxTypes(namedTypeManifest, {
       fileName: undefined,
       useCemTypes: true,
-      exactOptionalPropertyTypes: true,
     });
 
     expect(template).toContain('"variant"?: ButtonVariant | undefined;');
@@ -370,5 +362,259 @@ describe("generateJsxTypes", () => {
       '"variant"?: ButtonVariant | undefined | undefined;',
     );
     expect(template).toContain('"size"?: ButtonSize | undefined;');
+  });
+
+  it("does not duplicate | undefined when the CEM type is a function already unioned with undefined", () => {
+    const manifest = {
+      schemaVersion: "1.0.0",
+      readme: "",
+      modules: [
+        {
+          kind: "javascript-module" as const,
+          path: "src/button.js",
+          declarations: [
+            {
+              kind: "class" as const,
+              name: "Button",
+              tagName: "x-button",
+              customElement: true,
+              members: [
+                {
+                  kind: "field" as const,
+                  name: "handler",
+                  description: "Event handler",
+                  type: {
+                    text: "((e: string) => void) | undefined",
+                  },
+                },
+              ],
+            },
+          ],
+          exports: [
+            {
+              kind: "js" as const,
+              name: "Button",
+              declaration: {
+                name: "Button",
+                module: "src/button.js",
+              },
+            },
+          ],
+        },
+      ],
+    } satisfies cem.Package;
+
+    const template = generateJsxTypes(manifest, {
+      fileName: undefined,
+      useCemTypes: true,
+    });
+
+    expect(template).toContain(
+      '"handler"?: ((e: string) => void) | undefined;',
+    );
+    expect(template).not.toContain("| undefined | undefined");
+  });
+
+  it("does not duplicate | undefined when the CEM type is a parenthesized union with undefined", () => {
+    const manifest = {
+      schemaVersion: "1.0.0",
+      readme: "",
+      modules: [
+        {
+          kind: "javascript-module" as const,
+          path: "src/button.js",
+          declarations: [
+            {
+              kind: "class" as const,
+              name: "Button",
+              tagName: "x-button",
+              customElement: true,
+              members: [
+                {
+                  kind: "field" as const,
+                  name: "value",
+                  description: "Button value",
+                  type: {
+                    text: "(string | undefined)",
+                  },
+                },
+              ],
+            },
+          ],
+          exports: [
+            {
+              kind: "js" as const,
+              name: "Button",
+              declaration: {
+                name: "Button",
+                module: "src/button.js",
+              },
+            },
+          ],
+        },
+      ],
+    } satisfies cem.Package;
+
+    const template = generateJsxTypes(manifest, {
+      fileName: undefined,
+      useCemTypes: true,
+    });
+
+    expect(template).toContain('"value"?: (string | undefined);');
+    expect(template).not.toContain(
+      '"value"?: (string | undefined) | undefined;',
+    );
+  });
+
+  it("appends | undefined to BaseProps / GLOBAL_PROPS", () => {
+    const template = generateJsxTypes(jsDocManifest, {
+      fileName: undefined,
+    });
+
+    expect(template).toContain("children?: any | undefined;");
+    expect(template).toContain("class?: string | undefined;");
+    expect(template).toContain("id?: string | undefined;");
+    expect(template).toContain("role?: string | undefined;");
+    expect(template).toContain(
+      "ref?: (T | ((e: T) => void)) | undefined;",
+    );
+    expect(template).toContain("dir?: \"ltr\" | \"rtl\" | undefined;");
+  });
+
+  it("appends | undefined to event handlers with paren-wrapping", () => {
+    const template = generateJsxTypes(eventDetailManifest, {
+      fileName: undefined,
+      stronglyTypedEvents: false,
+    });
+
+    expect(template).toContain(
+      '"onmy-change"?: ((e: CustomEvent<MyDetail>) => void) | undefined;',
+    );
+    expect(template).not.toContain(
+      '"onmy-change"?: (e: CustomEvent<MyDetail>) => void;',
+    );
+  });
+
+  it("appends | undefined to BaseEvents / GLOBAL_EVENTS", () => {
+    const template = generateJsxTypes(jsDocManifest, {
+      fileName: undefined,
+      includeDefaultDOMEvents: true,
+    });
+
+    expect(template).toContain(
+      "onClick?: ((event: MouseEvent) => void) | undefined;",
+    );
+    expect(template).toContain(
+      "onKeyDown?: ((event: KeyboardEvent) => void) | undefined;",
+    );
+  });
+
+  it("appends | undefined to multi-line globalEvents entries", () => {
+    const multilineEvents = `  "onbig"?: {
+    nested: boolean;
+    other: string;
+  };`;
+
+    const template = generateJsxTypes(jsDocManifest, {
+      fileName: undefined,
+      globalEvents: multilineEvents,
+    });
+
+    expect(template).toContain(
+      '"onbig"?: {\n    nested: boolean;\n    other: string;\n  } | undefined;',
+    );
+  });
+
+  it("appends | undefined to CSS custom properties", () => {
+    const cssManifest = {
+      schemaVersion: "1.0.0",
+      readme: "",
+      modules: [
+        {
+          kind: "javascript-module",
+          path: "src/button.js",
+          declarations: [
+            {
+              kind: "class",
+              name: "Button",
+              tagName: "x-button",
+              customElement: true,
+              cssProperties: [
+                {
+                  name: "--button-color",
+                  description: "Button color",
+                },
+              ],
+              attributes: [],
+              members: [],
+            },
+          ],
+          exports: [
+            {
+              kind: "js",
+              name: "Button",
+              declaration: {
+                name: "Button",
+                module: "src/button.js",
+              },
+            },
+          ],
+        },
+      ],
+    } satisfies cem.Package;
+
+    const template = generateJsxTypes(cssManifest, {
+      fileName: undefined,
+    });
+
+    expect(template).toContain('"--button-color"?: string | undefined;');
+  });
+
+  it("appends | undefined to SolidJS props (innerHTML, textContent, prop:, attr:)", () => {
+    const template = generateJsxTypes(jsDocManifest, {
+      fileName: undefined,
+    });
+
+    expect(template).toContain("innerHTML?: string | undefined;");
+    expect(template).toContain(
+      "textContent?: string | number | undefined;",
+    );
+    expect(template).toContain(
+      `"prop:text"?: Button['text'] | undefined;`,
+    );
+    expect(template).toContain(
+      `"prop:variant"?: Button['variant'] | undefined;`,
+    );
+  });
+
+  it("appends | undefined to multi-line generic globalEvents entries", () => {
+    const multilineGenericEvents = `  "onfoo"?: Record<
+    string,
+    boolean
+  >;`;
+
+    const template = generateJsxTypes(jsDocManifest, {
+      fileName: undefined,
+      globalEvents: multilineGenericEvents,
+    });
+
+    expect(template).toContain(
+      '"onfoo"?: Record<\n    string,\n    boolean\n  > | undefined;',
+    );
+  });
+
+  it("appends | undefined to multi-line parenthesized union globalEvents entries", () => {
+    const multilineParenEvents = `  "onbar"?: (
+    string | number
+  );`;
+
+    const template = generateJsxTypes(jsDocManifest, {
+      fileName: undefined,
+      globalEvents: multilineParenEvents,
+    });
+
+    expect(template).toContain(
+      '"onbar"?: (\n    string | number\n  ) | undefined;',
+    );
   });
 });

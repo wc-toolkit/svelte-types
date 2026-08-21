@@ -2,11 +2,10 @@
 "@wc-toolkit/jsx-types": minor
 ---
 
-Add `exactOptionalPropertyTypes` option for TS `exactOptionalPropertyTypes` compatibility
+Append `| undefined` to all optional property types for `exactOptionalPropertyTypes` compatibility
 
-When enabled, the generator appends `| undefined` to every optional property
-type — component props, SolidJS props, event handlers, CSS custom properties,
-and global props/events — so the generated JSX types accept explicit `undefined`
-values in projects using TypeScript's `exactOptionalPropertyTypes` compiler
-option. Types that already include `undefined` are not duplicated. Defaults to
-`false`, preserving existing behavior.
+Generated types now always append `| undefined` to optional props, event
+handlers, CSS custom properties, and global props/events so they accept
+explicit `undefined` values under TypeScript's `exactOptionalPropertyTypes`
+flag. This is a no-op when the flag is off. Multi-line `globalEvents`
+entries are now handled correctly via brace-depth tracking.
