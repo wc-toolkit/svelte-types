@@ -1,5 +1,17 @@
 # @wc-toolkit/jsx-types
 
+## 1.8.0
+
+### Minor Changes
+
+- 99541f2: Append `| undefined` to all optional property types for `exactOptionalPropertyTypes` compatibility
+
+  Generated types now always append `| undefined` to optional props, event
+  handlers, CSS custom properties, and global props/events so they accept
+  explicit `undefined` values under TypeScript's `exactOptionalPropertyTypes`
+  flag. This is a no-op when the flag is off. Multi-line `globalEvents`
+  entries are now handled correctly via brace-depth tracking.
+
 ## 1.7.1
 
 ### Patch Changes
