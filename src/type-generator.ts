@@ -23,6 +23,96 @@ const DEFAULT_OPTIONS: JsxTypesOptions = {
 };
 
 /**
+ * Appends `| undefined` to a type expression so JSX optional props accept
+ * explicit `undefined` values under TypeScript's `exactOptionalPropertyTypes`.
+ *
+ * Since `prop?: T | undefined` is behaviorally identical to `prop?: T` when
+ * the flag is off and fixes TS2375 when it's on, we always emit `| undefined`
+ * for maximum downstream compatibility.
+ *
+ * - Function/arrow types are wrapped in parentheses to avoid changing the
+ *   precedence of `| undefined` (e.g. `((e: T) => void) | undefined`).
+ * - Types that already terminate in `undefined` are left untouched to avoid
+ *   producing `X | undefined | undefined`.
+ */
+function appendUndefined(type: string): string {
+  const trimmed = type.trim();
+
+  if (trimmed === "undefined" || /\|\s*undefined\s*\)*\s*$/.test(trimmed)) {
+    return type;
+  }
+
+  if (trimmed.includes("=>")) {
+    return `(${type}) | undefined`;
+  }
+
+  return `${type} | undefined`;
+}
+
+/**
+ * Applies {@link appendUndefined} to every optional property declaration
+ * (`name?: Type;`) in a static template string such as `GLOBAL_PROPS`.
+ *
+ * Uses a bracket-depth tracker to correctly handle multi-line type expressions
+ * (e.g. user-supplied `globalEvents` with object literal, generic, or
+ * parenthesized union types spanning multiple lines) rather than a
+ * line-by-line regex.
+ */
+function appendUndefinedToTemplate(template: string): string {
+  const lines = template.split("\n");
+  const result: string[] = [];
+  let accumulated: string[] = [];
+  let depth = 0;
+
+  const flush = () => {
+    if (accumulated.length === 0) return;
+
+    const block = accumulated.join("\n");
+    accumulated = [];
+
+    const match =
+      /^(\s*(?:"[^"]+"|[a-zA-Z_$][\w$-]*)\?:\s*)([\s\S]+);\s*$/.exec(block);
+
+    if (match) {
+      result.push(`${match[1]}${appendUndefined(match[2])};`);
+    } else {
+      result.push(block);
+    }
+  };
+
+  const processSingleLine = (line: string) => {
+    const match =
+      /^(\s*(?:"[^"]+"|[a-zA-Z_$][\w$-]*)\?:\s*)(.+);\s*$/.exec(line);
+
+    if (match) {
+      result.push(`${match[1]}${appendUndefined(match[2])};`);
+    } else {
+      result.push(line);
+    }
+  };
+
+  for (const line of lines) {
+    const opens = (line.match(/[<{(]/g) || []).length;
+    const closes = (line.match(/[>})]/g) || []).length;
+
+    if (depth === 0 && opens === 0) {
+      flush();
+      processSingleLine(line);
+    } else {
+      accumulated.push(line);
+      depth += opens - closes;
+      if (depth <= 0) {
+        depth = 0;
+        flush();
+      }
+    }
+  }
+
+  flush();
+  return result.join("\n");
+}
+
+/**
  * Generates TypeScript type definitions for custom elements to be used in JSX
  *
  * @param manifest - Custom Elements Manifest containing component definitions
@@ -268,12 +358,12 @@ ${
 }
 
 type BaseProps<T extends HTMLElement> = {
-${GLOBAL_PROPS}
+${appendUndefinedToTemplate(GLOBAL_PROPS)}
 } ${options.allowUnknownProps ? `& Record<string, any>` : ""};
 
 type BaseEvents = {
-${options.includeDefaultDOMEvents ? GLOBAL_EVENTS : ""}
-${Object.hasOwn(options, "globalEvents") ? options.globalEvents : ""}
+${appendUndefinedToTemplate(options.includeDefaultDOMEvents ? GLOBAL_EVENTS : "")}
+${appendUndefinedToTemplate(Object.hasOwn(options, "globalEvents") ? options.globalEvents ?? "" : "")}
 };
 
 ${components
@@ -303,6 +393,7 @@ ${(() => {
     const description = getMemberDescription(prop.description, prop.deprecated);
     const typeInfo = getResolvedPropType(prop, options);
     const type = getPropType(component.name, prop, typeInfo, options);
+    const undefinedType = appendUndefined(type);
 
     // Check if we already have this property in the accumulator
     const propExists = acc.includes(`  "${prop.propName}"?:`);
@@ -314,18 +405,18 @@ ${(() => {
     if (prop.attrName && prop.propName !== prop.attrName && !attrExists) {
       if(prop.propName !== prop.attrName) {
         result += `  /** ${description} */
-          "${prop.attrName}"?: ${type};\n`;
+          "${prop.attrName}"?: ${undefinedType};\n`;
       }
       solidTypes += `  /** ${description} */
-        "${(typeInfo?.text || prop.type?.text || "").includes("boolean") ? "bool" : "attr"}:${prop.attrName}"?: ${type};\n`;
+        "${(typeInfo?.text || prop.type?.text || "").includes("boolean") ? "bool" : "attr"}:${prop.attrName}"?: ${undefinedType};\n`;
     }
 
     // Add property declaration if it doesn't exist yet
     if (!propExists) {
       result += `  /** ${description} */
-        "${prop.propName}"?: ${type};\n`;
+        "${prop.propName}"?: ${undefinedType};\n`;
       solidTypes += `  /** ${description} */
-        "prop:${prop.propName}"?: ${type};\n`;
+        "prop:${prop.propName}"?: ${undefinedType};\n`;
     }
 
     return result;
@@ -338,26 +429,23 @@ ${
       const eventType = event.type?.text?.startsWith("{")
         ? `CustomEvent<${event.type.text}>`
         : event.type?.text || "Event";
+      const eventHandlerType = `(e: ${getEventTypeName(
+        eventType,
+        strongEventTypes?.find((x) => x.name === event.name)?.newType || null,
+        component.name,
+        options.stronglyTypedEvents,
+      )}) => void`;
+      const undefinedHandlerType = appendUndefined(eventHandlerType);
       solidTypes += `  /** ${getMemberDescription(
         event.description,
         event.deprecated,
       )} */
-  "on:${event.name}"?: (e: ${getEventTypeName(
-    eventType,
-    strongEventTypes?.find((x) => x.name === event.name)?.newType || null,
-    component.name,
-    options.stronglyTypedEvents,
-  )}) => void;\n`;
+  "on:${event.name}"?: ${undefinedHandlerType};\n`;
       return `  /** ${getMemberDescription(
         event.description,
         event.deprecated,
       )} */
-  "on${event.name}"?: (e: ${getEventTypeName(
-    eventType,
-    strongEventTypes?.find((x) => x.name === event.name)?.newType || null,
-    component.name,
-    options.stronglyTypedEvents,
-  )}) => void;\n`;
+  "on${event.name}"?: ${undefinedHandlerType};\n`;
     })
     .join("") || ""
 }
@@ -366,9 +454,9 @@ ${
 export type ${component.name}SolidJsProps = {
 ${solidTypes}
   /** Set the innerHTML of the element */
-  innerHTML?: string;
+  innerHTML?: ${appendUndefined("string")};
   /** Set the textContent of the element */
-  textContent?: string | number;
+  textContent?: ${appendUndefined("string | number")};
 }`;
   })
   .join("\n")}
@@ -436,7 +524,7 @@ ${(() => {
         uniqueCssProperties.add(property.name);
         cssPropertiesArray.push(
           `  /** ${getMemberDescription(property.description, property.deprecated)} */
-  "${property.name}"?: string;`,
+  "${property.name}"?: ${appendUndefined("string")};`,
         );
       }
     });
