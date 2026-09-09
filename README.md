@@ -1,6 +1,6 @@
 <div align="center">
   
-![workbench with tools, html, css, javascript, and svelte logos](https://raw.githubusercontent.com/wc-toolkit/jsx-types/refs/heads/main/assets/wc-toolkit_svelte.png)
+![workbench with tools, html, css, javascript, and svelte logos](https://raw.githubusercontent.com/wc-toolkit/svelte-types/refs/heads/main/assets/wc-toolkit_svelte.png)
 
 </div>
 
