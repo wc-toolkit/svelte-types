@@ -1,23 +1,23 @@
 # Contributing
 
-Thanks for contributing to `@wc-toolkit/jsx-types`.
+Thanks for contributing to `@wc-toolkit/svelte-types`.
 
-This repository generates JSX type definitions for custom elements from a Custom Elements Manifest. Keep changes focused, typed, and easy to review.
+This repository generates Svelte type definitions for custom elements from a Custom Elements Manifest. Keep changes focused, typed, and easy to review.
 
 ## Local setup
 
 1. Install dependencies with `pnpm install`.
 2. Use `pnpm` for project commands.
-3. Make changes in `src/`, add or update tests in `test/`, and use `demo/basic/` when you need a realistic manifest example.
+3. Make changes in `src/`, add or update tests in `test/`, and use the demo directory when you need a realistic manifest example.
 
 ## Project layout
 
-| Path | Purpose |
-| --- | --- |
-| `src/` | Library source code |
-| `test/` | Vitest coverage for generator behavior |
-| `demo/basic/` | Sample component library and generated manifest used for examples/tests |
-| `dist/` | Build output generated from `src/` |
+| Path    | Purpose                                                         |
+| ------- | --------------------------------------------------------------- |
+| `src/`  | Library source code                                             |
+| `test/` | Vitest coverage for generator behavior                          |
+| `demo/` | Sample projects and generated manifests used for examples/tests |
+| `dist/` | Build output generated from `src/`                              |
 
 ## Development workflow
 

@@ -1,24 +1,18 @@
 export const GLOBAL_PROPS = `
   /** Content added between the opening and closing tags of the element */
-  children?: any;
+   children?: any;
   /** Used for declaratively styling one or more elements using CSS (Cascading Stylesheets) */
   class?: string;
-  /** Used for declaratively styling one or more elements using CSS (Cascading Stylesheets) */
-  className?: string;
   /** Takes an object where the key is the class name(s) and the value is a boolean expression. When true, the class is applied, and when false, it is removed. */
   classList?: Record<string, boolean | undefined>;
   /** Specifies the text direction of the element. */
   dir?: "ltr" | "rtl";
   /** Contains a space-separated list of the part names of the element that should be exposed on the host element. */
   exportparts?: string;
-  /** For <label> and <output>, lets you associate the label with some control. */
-  htmlFor?: string;
   /** Specifies whether the element should be hidden. */
   hidden?: boolean | string;
   /** A unique identifier for the element. */
   id?: string;
-  /** Keys tell React which array item each component corresponds to */
-  key?: string | number;
   /** Specifies the language of the element. */
   lang?: string;
   /** Defines the element's semantic role for accessibility APIs. */
@@ -26,18 +20,18 @@ export const GLOBAL_PROPS = `
   /** Contains a space-separated list of the part names of the element. Part names allows CSS to select and style specific elements in a shadow tree via the ::part pseudo-element. */
   part?: string;
   /** Use the ref attribute with a variable to assign a DOM element to the variable once the element is rendered. */
-  ref?: T | ((e: T) => void);
+   ref?: unknown | ((e: unknown) => void);
   /** Adds a reference for a custom element slot */
   slot?: string;
   /** Prop for setting inline styles */
-  style?: Record<string, string | number>;
+   style?: string;
   /** Overrides the default Tab button behavior. Avoid using values other than -1 and 0. */
   tabIndex?: number;
   /** Specifies the tooltip text for the element. */
   title?: string;
   /** Passing 'no' excludes the element content from being translated. */
   translate?: "yes" | "no";
-  /** The popover global attribute is used to designate an element as a popover element. */
+   /** The popover global attribute is used to designate an element as a popover element. */
   popover?: "auto" | "hint" | "manual";
   /** Turns an element element into a popover control button; takes the ID of the popover element to control as its value. */
   popovertarget?: "top" | "bottom" | "left" | "right" | "auto";
@@ -48,10 +42,10 @@ export const GLOBAL_PROPS = `
 /**
  * Default DOM event handlers that can be included in custom elements.
  *
- * These event handlers are commonly used in JSX frameworks to handle native DOM events.
+ * These event handlers can be included in generated Svelte component types.
  * Use the `includeDefaultDOMEvents` option to automatically include these event handlers
  * in all your custom element definitions. This provides a more native-like developer
- * experience when working with your components in JSX frameworks.
+ * experience when working with your components in Svelte.
  *
  * By default, this option is set to `false` to keep the type definitions lean.
  * Set it to `true` to include all these events in your element definitions.

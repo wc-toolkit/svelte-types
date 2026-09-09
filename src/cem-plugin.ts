@@ -1,18 +1,17 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { generateJsxTypes } from "./type-generator";
-import type { JsxTypesOptions } from "./types";
+import { generateSvelteTypes } from "./type-generator";
+import type { SvelteTypesOptions } from "./types";
 
 /**
- * Plugin to generate JSX types for web components based on a custom elements manifest.
- * 
- * @param options - Configuration options for the JSX types plugin
- * @returns 
+ * Plugin to generate Svelte types for web components based on a custom elements manifest.
+ *
+ * @param options - Configuration options for the Svelte types plugin
  */
-export function jsxTypesPlugin(options: JsxTypesOptions = {}) {
+export function customElementSveltePlugin(options: SvelteTypesOptions = {}) {
   return {
-    name: "@wc-toolkit/jsx-types",
+    name: "@wc-toolkit/svelte-types",
     packageLinkPhase({ customElementsManifest }: any) {
-      generateJsxTypes(customElementsManifest, options);
+      generateSvelteTypes(customElementsManifest, options);
     },
   };
 }

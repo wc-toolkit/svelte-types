@@ -1,841 +1,306 @@
 import fs from "fs";
 import path from "path";
-import { JsxTypesOptions } from "./types";
+import prettier from "@prettier/sync";
+import type * as cem from "custom-elements-manifest";
 import {
-  Component,
   getAllComponents,
   getComponentDetailsTemplate,
+  getComponentPublicMethods,
   getComponentPublicProperties,
+  getCustomEventDetailTypes,
   getMemberDescription,
-  toPascalCase,
 } from "@wc-toolkit/cem-utilities";
-import type * as cem from "custom-elements-manifest";
+import type { Component } from "@wc-toolkit/cem-utilities";
 import { Logger } from "./logger";
 import { GLOBAL_EVENTS, GLOBAL_PROPS } from "./global-types";
-import prettier from "@prettier/sync";
+import type { SvelteTypesOptions } from "./types";
 
-const DEFAULT_OPTIONS: JsxTypesOptions = {
-  fileName: "custom-element-jsx.d.ts",
+const DEFAULT_OPTIONS: SvelteTypesOptions = {
+  fileName: "custom-elements-svelte.d.ts",
   outdir: "./",
   exclude: [],
-  prefix: "",
-  suffix: "",
+  includeModernEventHandlers: true,
 };
 
-/**
- * Appends `| undefined` to a type expression so JSX optional props accept
- * explicit `undefined` values under TypeScript's `exactOptionalPropertyTypes`.
- *
- * Since `prop?: T | undefined` is behaviorally identical to `prop?: T` when
- * the flag is off and fixes TS2375 when it's on, we always emit `| undefined`
- * for maximum downstream compatibility.
- *
- * - Function/arrow types are wrapped in parentheses to avoid changing the
- *   precedence of `| undefined` (e.g. `((e: T) => void) | undefined`).
- * - Types that already terminate in `undefined` are left untouched to avoid
- *   producing `X | undefined | undefined`.
- */
-function appendUndefined(type: string): string {
-  const trimmed = type.trim();
-
-  if (trimmed === "undefined" || /\|\s*undefined\s*\)*\s*$/.test(trimmed)) {
-    return type;
-  }
-
-  if (trimmed.includes("=>")) {
-    return `(${type}) | undefined`;
-  }
-
-  return `${type} | undefined`;
-}
-
-/**
- * Applies {@link appendUndefined} to every optional property declaration
- * (`name?: Type;`) in a static template string such as `GLOBAL_PROPS`.
- *
- * Uses a bracket-depth tracker to correctly handle multi-line type expressions
- * (e.g. user-supplied `globalEvents` with object literal, generic, or
- * parenthesized union types spanning multiple lines) rather than a
- * line-by-line regex.
- */
-function appendUndefinedToTemplate(template: string): string {
-  const lines = template.split("\n");
-  const result: string[] = [];
-  let accumulated: string[] = [];
-  let depth = 0;
-
-  const flush = () => {
-    if (accumulated.length === 0) return;
-
-    const block = accumulated.join("\n");
-    accumulated = [];
-
-    const match =
-      /^(\s*(?:"[^"]+"|[a-zA-Z_$][\w$-]*)\?:\s*)([\s\S]+);\s*$/.exec(block);
-
-    if (match) {
-      result.push(`${match[1]}${appendUndefined(match[2])};`);
-    } else {
-      result.push(block);
-    }
-  };
-
-  const processSingleLine = (line: string) => {
-    const match =
-      /^(\s*(?:"[^"]+"|[a-zA-Z_$][\w$-]*)\?:\s*)(.+);\s*$/.exec(line);
-
-    if (match) {
-      result.push(`${match[1]}${appendUndefined(match[2])};`);
-    } else {
-      result.push(line);
-    }
-  };
-
-  for (const line of lines) {
-    const opens = (line.match(/[<{(]/g) || []).length;
-    const closes = (line.match(/[>})]/g) || []).length;
-
-    if (depth === 0 && opens === 0) {
-      flush();
-      processSingleLine(line);
-    } else {
-      accumulated.push(line);
-      depth += opens - closes;
-      if (depth <= 0) {
-        depth = 0;
-        flush();
-      }
-    }
-  }
-
-  flush();
-  return result.join("\n");
-}
-
-/**
- * Generates TypeScript type definitions for custom elements to be used in JSX
- *
- * @param manifest - Custom Elements Manifest containing component definitions
- * @param options - Configuration options for type generation
- */
-export function generateJsxTypes(
+/** Generates Svelte type declarations from a Custom Elements Manifest. */
+export function generateSvelteTypes(
   manifest: cem.Package,
-  options: JsxTypesOptions = {},
+  options: SvelteTypesOptions = {},
 ) {
   const mergedOptions = { ...DEFAULT_OPTIONS, ...options };
   const log = new Logger(mergedOptions.debug);
 
   if (mergedOptions.skip) {
-    log.yellow("[jsx-types] - Skipped");
+    log.yellow("[svelte-types] - Skipped");
     return;
   }
 
-  if (!manifest || !manifest.modules || manifest.modules.length === 0) {
-    log.red("[jsx-types] - No modules found in the manifest.");
+  if (!manifest?.modules?.length) {
+    log.red("[svelte-types] - No modules found in the manifest.");
     return;
   }
 
   if (!mergedOptions.outdir) {
-    log.red("[jsx-types] - No output directory specified.");
+    log.red("[svelte-types] - No output directory specified.");
     return;
   }
 
-  log.log("[jsx-types] - Generating types...");
-
   const template = getTypeTemplate(manifest, mergedOptions);
 
-  // save file only if a filename is provided
   if (mergedOptions.fileName) {
-    createOutDir(mergedOptions.outdir!);
-    saveFile(mergedOptions.outdir!, mergedOptions.fileName!, template);
-    log.green(
-      `[jsx-types] - Generated "${path.join(mergedOptions.outdir!, mergedOptions.fileName)}".`,
+    createOutDir(mergedOptions.outdir);
+    const outputPath = saveFile(
+      mergedOptions.outdir,
+      mergedOptions.fileName,
+      template,
     );
-  } else {
-    log.yellow(
-      `[jsx-types] - File generation skipped because \`fileName\` was not defined.`,
-    );
+    log.green(`[svelte-types] - Generated "${outputPath}".`);
   }
 
   return template;
 }
 
-function getImports(manifest: cem.Package, options: JsxTypesOptions) {
-  const imports = new Map<string, Set<string>>();
-  const componentModules = new Map<string, { modulePath: string; tagName?: string }>();
+function getTypeTemplate(manifest: cem.Package, options: SvelteTypesOptions) {
+  const components = getAllComponents(manifest, options.exclude).filter(
+    (component) =>
+      component.customElement && component.name && component.tagName,
+  ) as unknown as cem.CustomElement[];
 
-  manifest.modules.forEach((module) => {
-    if (
-      !module.declarations ||
-      !module.declarations.length ||
-      !module.declarations.some((d) => (d as cem.CustomElement).customElement)
-    ) {
-      return;
-    }
-
-    module.declarations?.forEach((element) => {
-      const component = element as cem.CustomElement;
-
-      if (!component.customElement || !component.name) {
-        return;
-      }
-
-      componentModules.set(component.name, {
-        modulePath: module.path,
-        tagName: component.tagName,
-      });
-    });
-
-    if (options.globalTypePath) {
-      module.exports?.forEach((exportDeclaration) => {
-        const exportName = exportDeclaration.declaration.name;
-
-        if (!exportName || exportName === "*") {
-          return;
-        }
-
-        addImport(imports, options.globalTypePath!, exportName);
-      });
-    } else {
-      module.declarations?.forEach((element) => {
-        const component = element as cem.CustomElement;
-
-        if (!component.customElement || !component.name) {
-          return;
-        }
-
-        const importPath =
-          getComponentImportPath(component.name, component.tagName, module.path, options);
-
-        module.exports?.forEach((exportDeclaration) => {
-          const exportName = exportDeclaration.declaration.name;
-
-          if (!exportName || exportName === "*") {
-            return;
-          }
-
-          if (!(options.defaultExport && exportName === component.name)) {
-            addImport(imports, importPath, exportName);
-          }
-        });
-
-        if (options.defaultExport) {
-          addImport(imports, importPath, `default as ${component.name}`);
-        }
-      });
-    }
-  });
-
-  if (options.useCemTypes) {
-    getAllComponents(manifest, options.exclude).forEach((component) => {
-      if (!component.name) {
-        return;
-      }
-
-      const componentModule = componentModules.get(component.name);
-
-      if (!componentModule) {
-        return;
-      }
-
-      getComponentProps(component).forEach((prop) => {
-        const propType = getResolvedPropType(prop, options);
-
-        propType?.references?.forEach((reference) => {
-          if (!reference.name || reference.name === "default") {
-            return;
-          }
-
-          const importPath = getTypeImportPath(
-            reference,
-            componentModule.modulePath,
-            component,
-            options,
-          );
-
-          if (!importPath) {
-            return;
-          }
-
-          addImport(imports, importPath, reference.name);
-        });
-      });
-    });
-  }
-
-  getAllComponents(manifest, options.exclude).forEach((component) => {
-    if (!component.name || !component.events?.length) {
-      return;
-    }
-
-    const componentModule = componentModules.get(component.name);
-    if (!componentModule) {
-      return;
-    }
-
-    const importPath = options.globalTypePath
-      ? options.globalTypePath
-      : getComponentImportPath(
-          component.name,
-          component.tagName,
-          componentModule.modulePath,
-          options,
-        );
-
-    component.events.forEach((event) => {
-      if (!event.type?.text) {
-        return;
-      }
-
-      const match = /^CustomEvent<(.+)>$/.exec(event.type.text);
-      if (!match) {
-        return;
-      }
-
-      const detail = match[1].trim();
-      if (/^[A-Z][\w$]*$/.test(detail)) {
-        addImport(imports, importPath, detail);
-      }
-    });
-  });
-
-  return Array.from(imports.entries())
-    .map(
-      ([importPath, exportNames]) =>
-        `import type { ${Array.from(exportNames).join(", ")} } from "${importPath}";`,
-    )
-    .join("\n");
-}
-
-function getTypeTemplate(manifest: cem.Package, options: JsxTypesOptions) {
-  const components = getAllComponents(manifest, options.exclude);
-  const imports = getImports(manifest, options);
-  const cssPropertiesTemplate = options.excludeCssCustomProperties
-    ? ""
-    : "export interface CSSProperties extends CustomCssProperties {}";
   return `
-${imports}
+${getImports(manifest, components, options)}
 
-/**
- * This type can be used to create scoped tags for your components.
- *
- * Usage:
- *
- * \`\`\`ts
- * import type { ScopedElements } from "path/to/library/jsx-integration";
- *
- * declare module "my-library" {
- *   namespace JSX {
- *     interface IntrinsicElements
- *       extends ScopedElements<'test-', ''> {}
- *   }
- * }
- * \`\`\`
- *
- * @deprecated Runtime scoped elements result in duplicate types and can confusing for developers. It is recommended to use the \`prefix\` and \`suffix\` options to generate new types instead.
- */
-export type ScopedElements<
-  Prefix extends string = "",
-  Suffix extends string = ""
-> = {
-  [Key in keyof CustomElements as \`\${Prefix}\${Key}\${Suffix}\`]: CustomElements[Key];
+type BaseProps = {
+${GLOBAL_PROPS}
 };
-
-${
-  options.stronglyTypedEvents
-    ? `/**
-  * A generic type for strongly typing custom events with their targets
-  * @template T - The type of the event target (extends EventTarget)
-  * @template D - The type of the detail payload for the custom event
-  */
- type TypedEvent<
-   T extends EventTarget,
-   E = Event
- > = E & {
-   target: T;
- };`
-    : ""
-}
-
-type BaseProps<T extends HTMLElement> = {
-${appendUndefinedToTemplate(GLOBAL_PROPS)}
-} ${options.allowUnknownProps ? `& Record<string, any>` : ""};
 
 type BaseEvents = {
-${appendUndefinedToTemplate(options.includeDefaultDOMEvents ? GLOBAL_EVENTS : "")}
-${appendUndefinedToTemplate(Object.hasOwn(options, "globalEvents") ? options.globalEvents ?? "" : "")}
+${options.globalEvents ?? ""}
+${options.includeDefaultDOMEvents ? getSvelteGlobalEvents(options.includeModernEventHandlers) : ""}
 };
 
-${components
-  ?.map((component: Component) => {
-    if (!component.name || !component.tagName) {
-      return "";
-    }
+${components.map((component) => getComponentPropsTemplate(component, options)).join("\n")}
+${components.map((component) => getComponentElementTemplate(component, options)).join("\n")}
 
-    const cachedProps =
-      getComponentProps(component)?.filter((prop) => !prop.readonly && !prop.static) ||
-      [];
-
-    const strongEventTypes = getStrongEventTypes(component);
-
-    let solidTypes = "";
-
-    return `
-${options.stronglyTypedEvents ? getStronglyTypedEvents(component) : ""}
-
-export type ${component.name}Props = {
-${(() => {
-  if (!cachedProps?.length) {
-    return "";
-  }
-
-  return cachedProps.reduce((acc, prop) => {
-    const description = getMemberDescription(prop.description, prop.deprecated);
-    const typeInfo = getResolvedPropType(prop, options);
-    const type = getPropType(component.name, prop, typeInfo, options);
-    const undefinedType = appendUndefined(type);
-
-    // Check if we already have this property in the accumulator
-    const propExists = acc.includes(`  "${prop.propName}"?:`);
-    const attrExists = prop.attrName && acc.includes(`  "${prop.attrName}"?:`);
-
-    let result = acc;
-
-    // Add attribute declaration if it exists and doesn't match property name
-    if (prop.attrName && prop.propName !== prop.attrName && !attrExists) {
-      if(prop.propName !== prop.attrName) {
-        result += `  /** ${description} */
-          "${prop.attrName}"?: ${undefinedType};\n`;
-      }
-      solidTypes += `  /** ${description} */
-        "${(typeInfo?.text || prop.type?.text || "").includes("boolean") ? "bool" : "attr"}:${prop.attrName}"?: ${undefinedType};\n`;
-    }
-
-    // Add property declaration if it doesn't exist yet
-    if (!propExists) {
-      result += `  /** ${description} */
-        "${prop.propName}"?: ${undefinedType};\n`;
-      solidTypes += `  /** ${description} */
-        "prop:${prop.propName}"?: ${undefinedType};\n`;
-    }
-
-    return result;
-  }, "");
-})()}
-${
-  component.events
-    ?.filter((e) => e.name)
-    ?.map((event) => {
-      const eventType = event.type?.text?.startsWith("{")
-        ? `CustomEvent<${event.type.text}>`
-        : event.type?.text || "Event";
-      const eventHandlerType = `(e: ${getEventTypeName(
-        eventType,
-        strongEventTypes?.find((x) => x.name === event.name)?.newType || null,
-        component.name,
-        options.stronglyTypedEvents,
-      )}) => void`;
-      const undefinedHandlerType = appendUndefined(eventHandlerType);
-      solidTypes += `  /** ${getMemberDescription(
-        event.description,
-        event.deprecated,
-      )} */
-  "on:${event.name}"?: ${undefinedHandlerType};\n`;
-      return `  /** ${getMemberDescription(
-        event.description,
-        event.deprecated,
-      )} */
-  "on${event.name}"?: ${undefinedHandlerType};\n`;
-    })
-    .join("") || ""
-}
-}
-
-export type ${component.name}SolidJsProps = {
-${solidTypes}
-  /** Set the innerHTML of the element */
-  innerHTML?: ${appendUndefined("string")};
-  /** Set the textContent of the element */
-  textContent?: ${appendUndefined("string | number")};
-}`;
-  })
-  .join("\n")}
-
-  export type CustomElements = {
+export type CustomElements = {
 ${components
   .map((component) => {
-    if (!component.name || !component.tagName) {
-      return "";
-    }
-
-    let tagName = component.tagName;
-    if (options.tagFormatter) {
-      tagName = options.tagFormatter(component.tagName);
-    } else if (options.prefix || options.suffix) {
-      tagName = `${options.prefix}${component.tagName}${options.suffix}`;
-    }
-
+    const tagName = formatTagName(component.tagName!, options);
     return `
-
   /**
-    ${getComponentDetailsTemplate(component, options.componentDescriptionOptions, true)}
+    ${getComponentDetailsTemplate(toUtilityComponent(component), options.componentDescriptionOptions, true)}
   */
-    "${tagName}": Partial<${
-      component.name
-    }Props & BaseProps<${component.name}> & BaseEvents>;`;
+  "${tagName}": Partial<${component.name}Props & BaseProps & BaseEvents>;`;
   })
   .join("\n")}
-  }
+};
 
-  export type CustomElementsSolidJs = {
-${components
-  .map((component) => {
-    if (!component.name || !component.tagName) {
-      return "";
-    }
-
-    let tagName = component.tagName;
-    if (options.tagFormatter) {
-      tagName = options.tagFormatter(component.tagName);
-    } else if (options.prefix || options.suffix) {
-      tagName = `${options.prefix}${component.tagName}${options.suffix}`;
-    }
-
-    return `
-
-  /**
-    ${getComponentDetailsTemplate(component, options.componentDescriptionOptions, true)}
-  */
-    "${tagName}": Partial<${component.name}Props & ${
-      component.name
-    }SolidJsProps & BaseProps<${component.name}> & BaseEvents>;`;
-  })
-  .join("\n")}
-  }
-
-export type CustomCssProperties = {
-${(() => {
-  const uniqueCssProperties = new Set<string>();
-  const cssPropertiesArray: string[] = [];
-
-  components.forEach((component) => {
-    component.cssProperties?.forEach((property) => {
-      if (!uniqueCssProperties.has(property.name)) {
-        uniqueCssProperties.add(property.name);
-        cssPropertiesArray.push(
-          `  /** ${getMemberDescription(property.description, property.deprecated)} */
-  "${property.name}"?: ${appendUndefined("string")};`,
-        );
-      }
-    });
-  });
-
-  return cssPropertiesArray.join("\n");
-})()}
-}
-
-
-declare module 'react' {
-  namespace JSX {
-    interface IntrinsicElements extends CustomElements {}
-  }
-  ${cssPropertiesTemplate}
-}
-
-declare module 'react/jsx-runtime' {
-  namespace JSX {
-    interface IntrinsicElements extends CustomElements {}
-  }
-  ${cssPropertiesTemplate}
-}
-
-declare module 'react/jsx-dev-runtime' {
-  namespace JSX {
-    interface IntrinsicElements extends CustomElements {}
-  }
-  ${cssPropertiesTemplate}
-}
-
-declare module 'preact' {
-  namespace JSX {
-    interface IntrinsicElements extends CustomElements {}
-  }
-  ${cssPropertiesTemplate}
-}
-
-declare module '@builder.io/qwik' {
-  namespace JSX {
-    interface IntrinsicElements extends CustomElements {}
-  }
-  ${cssPropertiesTemplate}
-}
-
-declare module '@stencil/core' {
-  namespace JSX {
-    interface IntrinsicElements extends CustomElements {}
-  }
-  ${cssPropertiesTemplate}
-}
-
-declare module 'hono/jsx' {
-  namespace JSX {
-    interface IntrinsicElements extends CustomElements {}
-  }
-  ${cssPropertiesTemplate}
-}
-
-declare module 'react-native' {
-  namespace JSX {
-    interface IntrinsicElements extends CustomElements {}
-  }
-  ${cssPropertiesTemplate}
-}
-
-declare module "solid-js" {
-  namespace JSX {
-    interface IntrinsicElements extends CustomElementsSolidJs {}
-  }
-  ${cssPropertiesTemplate}
-}
-
-declare global {
-  namespace JSX {
-    interface IntrinsicElements extends CustomElements {}
-  }
-  ${cssPropertiesTemplate}
+declare namespace svelteHTML {
+  interface IntrinsicElements extends CustomElements {}
 }
 `;
 }
 
-type ComponentProp = {
-  attrName?: string;
-  propName?: string;
-  description?: string;
-  deprecated?: boolean | string;
-  readonly?: boolean;
-  static?: boolean;
-  type?: cem.Type;
-  attribute?: cem.Attribute;
-  property?: cem.ClassField;
-};
+function getImports(
+  manifest: cem.Package,
+  components: cem.CustomElement[],
+  options: SvelteTypesOptions,
+) {
+  const names = new Map<string, Set<string>>();
+
+  for (const component of components) {
+    const importPath = options.globalTypePath
+      ? options.globalTypePath
+      : typeof options.componentTypePath === "function"
+        ? options.componentTypePath(
+            component.name,
+            component.tagName,
+            getComponentModulePath(manifest, component),
+          )
+        : undefined;
+
+    if (!importPath) continue;
+
+    addImport(names, importPath, component.name);
+    for (const eventType of getCustomEventDetailTypes(
+      toUtilityComponent(component),
+      [component.name],
+    )) {
+      addImport(names, importPath, eventType);
+    }
+  }
+
+  return [...names.entries()]
+    .map(
+      ([importPath, exports]) =>
+        `import type { ${[...exports].join(", ")} } from "${importPath}";`,
+    )
+    .join("\n");
+}
+
+function getComponentPropsTemplate(
+  component: cem.CustomElement,
+  options: SvelteTypesOptions,
+) {
+  const typeFor = (
+    name: string,
+    source: unknown,
+    fallback: cem.Type | undefined,
+  ) => {
+    if (options.globalTypePath || options.componentTypePath) {
+      return `${component.name}['${name}']`;
+    }
+    const configured = getConfiguredType(source, options.typesSrc);
+    return configured?.text || fallback?.text || "string";
+  };
+
+  const attributes = (component.attributes ?? [])
+    .map(
+      (
+        attribute,
+      ) => `  /** ${getMemberDescription(attribute.description, attribute.deprecated)} */
+          "${attribute.name}"?: ${typeFor(attribute.fieldName || attribute.name, attribute, attribute.type)};`,
+    )
+    .join("\n");
+  const publicProperties = getComponentPublicProperties(
+    toUtilityComponent(component),
+  )
+    .filter((property) => !property.readonly && !property.static)
+    .filter(
+      (property) =>
+        !(component.attributes ?? []).some(
+          (attribute) => attribute.fieldName === property.name,
+        ),
+    );
+  const properties = publicProperties
+    .map(
+      (
+        property,
+      ) => `  /** ${getMemberDescription(property.description, property.deprecated)} */
+   "${property.name}"?: ${typeFor(property.name, property, property.type)};`,
+    )
+    .join("\n");
+  const events = (component.events ?? [])
+    .map((event) => {
+      const eventType = event.type?.text || "Event";
+      const handlers = [`  "on:${event.name}"?: (e: ${eventType}) => void;`];
+      if (options.includeModernEventHandlers) {
+        handlers.push(`  "on${event.name}"?: (e: ${eventType}) => void;`);
+      }
+      return `  /** ${getMemberDescription(event.description, event.deprecated)} */
+${handlers.join("\n")}`;
+    })
+    .join("\n");
+
+  const cssProperties = (component.cssProperties ?? [])
+    .map(
+      (
+        property,
+      ) => `  /** ${getMemberDescription(property.description, property.deprecated)} */
+  "style:${property.name}"?: string | number;`,
+    )
+    .join("\n");
+
+  return `export type ${component.name}Props = {
+${attributes}
+${properties}
+${events}
+${cssProperties}
+};`;
+}
 
 function addImport(
   imports: Map<string, Set<string>>,
   importPath: string,
-  exportName: string,
+  name: string,
 ) {
-  const existing = imports.get(importPath);
-
-  if (existing) {
-    existing.add(exportName);
-    return;
-  }
-
-  imports.set(importPath, new Set([exportName]));
+  if (!imports.has(importPath)) imports.set(importPath, new Set());
+  imports.get(importPath)!.add(name);
 }
 
-function getComponentImportPath(
-  componentName: string,
-  tagName: string | undefined,
-  modulePath: string,
-  options: JsxTypesOptions,
+function getComponentElementTemplate(
+  component: cem.CustomElement,
+  options: SvelteTypesOptions,
 ) {
-  return typeof options.componentTypePath === "function"
-    ? options.componentTypePath(componentName, tagName, modulePath)
-    : modulePath;
-}
+  const elementType = `${component.name}Element`;
+  const slots = component.slots?.map((slot) => JSON.stringify(slot.name)) ?? [];
+  const slotType = slots.length
+    ? `export type ${component.name}Slots = ${slots.join(" | ")};`
+    : "";
 
-function getTypeImportPath(
-  reference: cem.TypeReference,
-  componentModulePath: string,
-  component: Component,
-  options: JsxTypesOptions,
-) {
-  if (reference.package) {
-    return reference.package;
+  if (options.globalTypePath || options.componentTypePath) {
+    return `export type ${elementType} = ${component.name};
+${slotType}`;
   }
 
-  if (!reference.module) {
-    return null;
-  }
+  const methods = getComponentPublicMethods(toUtilityComponent(component))
+    .filter((method) => !method.static)
+    .map((method) => {
+      const parameters = (method.parameters ?? [])
+        .map((parameter) => {
+          const optional = parameter.optional ? "?" : "";
+          const rest = parameter.rest ? "..." : "";
+          return `${rest}${parameter.name}${optional}: ${parameter.type?.text || "unknown"}`;
+        })
+        .join(", ");
+      return `  /** ${getMemberDescription(method.description, method.deprecated)} */
+  ${method.name}(${parameters}): ${method.return?.type?.text || "void"};`;
+    })
+    .join("\n");
 
-  if (reference.module === componentModulePath) {
-    if (options.globalTypePath) {
-      return options.globalTypePath;
-    }
-
-    if (component.name) {
-      return getComponentImportPath(
-        component.name,
-        component.tagName,
-        componentModulePath,
-        options,
-      );
-    }
-  }
-
-  return reference.module;
+  return `export interface ${elementType} extends HTMLElement {
+${methods}
+}
+${slotType}`;
 }
 
-function getComponentProps(component: Component): ComponentProp[] {
-  const properties = getComponentPublicProperties(component) as cem.ClassField[];
-  const propertyMap = new Map(properties.map((property) => [property.name, property]));
-  const attributeProps =
-    component.attributes?.map((attribute) => ({
-      attrName: attribute.name,
-      propName: attribute.fieldName,
-      description: attribute.description,
-      deprecated: attribute.deprecated,
-      readonly: false,
-      static: false,
-      type: attribute.type,
-      attribute,
-      property: attribute.fieldName
-        ? propertyMap.get(attribute.fieldName)
-        : undefined,
-    })) || [];
-  const attributePropNames = new Set(
-    attributeProps
-      .map((attribute) => attribute.propName)
-      .filter((propName): propName is string => Boolean(propName)),
-  );
-  const propertyOnlyProps = properties
-    .filter((property) => !attributePropNames.has(property.name))
-    .map((property) => ({
-      attrName: undefined,
-      propName: property.name,
-      description: property.description,
-      deprecated: property.deprecated,
-      readonly: property.readonly,
-      static: property.static,
-      type: property.type,
-      attribute: undefined,
-      property,
-    }));
-
-  return [...attributeProps, ...propertyOnlyProps];
+function formatTagName(tagName: string, options: SvelteTypesOptions) {
+  return options.tagFormatter ? options.tagFormatter(tagName) : tagName;
 }
 
-function getTypeFromSource(
-  source: cem.Attribute | cem.ClassField | undefined,
-  sourceKey: string,
-) {
-  const candidate = source
-    ? (source as unknown as Record<string, unknown>)[sourceKey]
+function toUtilityComponent(component: cem.CustomElement): Component {
+  return component as unknown as Component;
+}
+
+function getConfiguredType(source: unknown, sourceKey: string | undefined) {
+  if (!sourceKey || !source || typeof source !== "object") return undefined;
+  const value = (source as Record<string, unknown>)[sourceKey];
+  return value && typeof value === "object" && "text" in value
+    ? (value as cem.Type)
     : undefined;
-
-  if (
-    candidate &&
-    typeof candidate === "object" &&
-    "text" in candidate &&
-    typeof candidate.text === "string"
-  ) {
-    return candidate as cem.Type;
-  }
-
-  return undefined;
 }
 
-function getResolvedPropType(prop: ComponentProp, options: JsxTypesOptions) {
-  const sourceKey = options.typesSrc || "type";
+function getComponentModulePath(
+  manifest: cem.Package,
+  component: cem.CustomElement,
+) {
+  return manifest.modules.find((module) =>
+    module.declarations?.some(
+      (declaration) => declaration.name === component.name,
+    ),
+  )?.path;
+}
 
-  return (
-    getTypeFromSource(prop.property, sourceKey) ??
-    getTypeFromSource(prop.attribute, sourceKey) ??
-    (sourceKey === "type" ? undefined : getTypeFromSource(prop.property, "type")) ??
-    (sourceKey === "type" ? undefined : getTypeFromSource(prop.attribute, "type")) ??
-    prop.type
+function getSvelteGlobalEvents(includeModern: boolean | undefined) {
+  return GLOBAL_EVENTS.replace(
+    /^(\s*)on([A-Z][\w]*)(\?:.*)$/gm,
+    (_, indent: string, name: string, declaration: string) => {
+      const eventName = name.toLowerCase();
+      const handlers = [`${indent}"on:${eventName}"${declaration}`];
+      if (includeModern) handlers.push(`${indent}on${eventName}${declaration}`);
+      return handlers.join("\n");
+    },
   );
-}
-
-function getPropType(
-  componentName: string,
-  prop: ComponentProp,
-  propType: cem.Type | undefined,
-  options: JsxTypesOptions,
-) {
-  if (options.useCemTypes) {
-    return propType?.text || "unknown";
-  }
-
-  return prop.propName ? `${componentName}['${prop.propName}']` : "unknown";
-}
-
-function getEventTypeName(
-  eventType: string,
-  strongEventType: string | null,
-  componentName: string = "",
-  stronglyTyped?: boolean,
-) {
-  return stronglyTyped
-    ? (strongEventType ?? `${componentName}ElementEvent`)
-    : eventType;
-}
-
-function getStrongEventTypes(component: Component) {
-  const eventTypes = component?.events
-    ?.filter((e) => e.name)
-    ?.map((event) => ({
-      name: event.name,
-      type: event?.type?.text,
-    }));
-
-  if (!eventTypes) {
-    return [];
-  }
-
-  return eventTypes
-    .filter(
-      (eventType) =>
-        eventType.type &&
-        eventType.type !== "Event" &&
-        eventType.type !== "CustomEvent",
-    )
-    .map((eventType) => {
-      return {
-        name: eventType.name,
-        type: eventType.type.startsWith("{")
-          ? `CustomEvent<${eventType.type}>`
-          : eventType.type,
-        newType: `${component.name}${toPascalCase(eventType.name)}ElementEvent`,
-      };
-    });
-}
-
-function getStronglyTypedEvents(component: Component): string {
-  if (!component.events?.length) {
-    return "";
-  }
-
-  const eventTypes = getStrongEventTypes(component);
-  const types: string[] = [
-    `/** \`${component.name}\` component event */
-     export type ${component.name}ElementEvent<E = Event> = TypedEvent<${component.name}, E>;`,
-  ];
-
-  eventTypes.forEach((eventType) => {
-    types.push(
-      `/** \`${eventType.name}\` event type */
-      export type ${eventType.newType} = ${component.name}ElementEvent<${eventType.type}>;`,
-    );
-  });
-
-  return types.join("\n");
 }
 
 function createOutDir(outDir: string) {
-  if (outDir !== "./" && !fs.existsSync(outDir)) {
-    fs.mkdirSync(outDir, { recursive: true });
-  }
+  if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
 }
 
 function saveFile(outDir: string, fileName: string, contents: string) {
   const outputPath = path.join(outDir, fileName);
-
   fs.writeFileSync(
     outputPath,
-    prettier.format(contents, { parser: "typescript", printWidth: 80 }),
+    prettier.format(contents, { parser: "typescript", printWidth: 120 }),
   );
-
   return outputPath;
 }

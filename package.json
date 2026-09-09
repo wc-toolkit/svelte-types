@@ -1,7 +1,7 @@
 {
-  "name": "@wc-toolkit/jsx-types",
-  "version": "1.8.0",
-  "description": "This package generates types for JSX environments for custom elements / web components",
+  "name": "@wc-toolkit/svelte-types",
+  "version": "0.1.0",
+  "description": "This package generates Svelte types for custom elements / web components",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -19,9 +19,7 @@
   },
   "types": "./dist/index.d.ts",
   "files": [
-    "index.js",
-    "index.d.ts",
-    "/dist"
+    "dist"
   ],
   "scripts": {
     "analyze": "npm run build && cem analyze --globs demo/basic/src/**/*.js --outdir demo",
@@ -41,24 +39,25 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/wc-toolkit/jsx-types.git"
+    "url": "git+https://github.com/wc-toolkit/svelte-types.git"
   },
   "bugs": {
-    "url": "https://github.com/wc-toolkit/jsx-types/issues"
+    "url": "https://github.com/wc-toolkit/svelte-types/issues"
   },
-  "homepage": "https://wc-toolkit.com/documentation/jsx-types",
+  "homepage": "https://wc-toolkit.com/documentation/svelte-types",
   "devDependencies": {
     "@changesets/cli": "^2.27.12",
     "@eslint/js": "^9.19.0",
     "@types/node": "^22.15.21",
     "@wc-toolkit/cem-utilities": "^1.4.1",
-    "comment-parser": "^1.4.1",
     "custom-elements-manifest": "2.1.0",
     "eslint": "^9.19.0",
     "eslint-config-prettier": "^10.0.1",
     "expect-type": "^1.4.0",
     "husky": "^9.1.7",
     "prettier": "3.4.2",
+    "svelte": "^5.0.0",
+    "svelte-check": "^4.0.0",
     "tsup": "^8.3.6",
     "typescript": "^5.7.3",
     "typescript-eslint": "^8.21.0",
@@ -73,12 +72,9 @@
     "web-components",
     "components",
     "cem",
-    "jsx",
-    "jsx-types",
-    "react",
-    "preact",
-    "stenciljs",
-    "@wc-toolkit/jsx-types"
+    "svelte",
+    "svelte-types",
+    "@wc-toolkit/svelte-types"
   ],
   "lint-staged": {
     "*.ts": "eslint --cache --fix",

@@ -1,537 +1,440 @@
 <div align="center">
   
-![workbench with tools, html, css, javascript, and jsx logos](https://raw.githubusercontent.com/wc-toolkit/jsx-types/refs/heads/main/assets/wc-toolkit_jsx.png)
+![workbench with tools, html, css, javascript, and svelte logos](https://raw.githubusercontent.com/wc-toolkit/jsx-types/refs/heads/main/assets/wc-toolkit_svelte.png)
 
 </div>
 
-# WC Toolkit Custom Element JSX Types Generator
+# WC Toolkit Custom Element Svelte Types Generator
 
-This package is designed to generate [JSX](https://www.typescriptlang.org/docs/handbook/jsx.html) types for your custom elements. These types will generate inline documentation, autocomplete, and type-safe validation for your custom elements in frameworks that use JSX like [React (19+)](https://react.dev/), [Preact](https://preactjs.com/), [StencilJS](https://stenciljs.com/), and [SolidJS](https://www.solidjs.com/).
+This package generates TypeScript declarations for custom elements used in [Svelte](https://svelte.dev/) projects. The generated declarations provide type-safe validation for component attributes, component properties, custom events, and CSS custom properties.
 
-![demo of autocomplete features for custom elements in a jsx project](https://github.com/break-stuff/cem-tools/blob/main/demo/images/solid-js-integration/solid-js-integration.gif?raw=true)
+Types are generated for all custom elements defined in a [Custom Elements Manifest](https://custom-elements-manifest.open-wc.org/).
 
-This allows developers to use your custom elements in their JSX projects with full type support, making it easier to integrate and use your components.
+Generated declarations include:
 
-> **_NOTE:_** If you are using react 18 or below, check out our [react wrappers](https://wc-toolkit.com/integrations/react/).
-
-Types will be generated for all custom elements defined in your [Custom Elements Manifest](https://custom-elements-manifest.open-wc.org/). 
-
-This includes types and documentation for:
-
-- Custom elements (types and docs)
-- Attributes (types and docs)
-- Properties (types and docs)
-- Events (types and docs)
-- Methods (types and docs)
-- Slots (docs)
-- CSS Custom Properties (docs)
-- CSS States (docs)
+- Custom element names and component descriptions
+- Attributes and their manifest types
+- Component properties passed through Svelte attributes
+- Custom event handlers using Svelte's `on:` syntax
+- Global element properties and optional DOM event handlers
+- CSS custom properties
+- Documentation for methods, slots, CSS parts, and CSS states
 
 ## Usage
 
-This package includes two ways to generate the custom data config file:
+This package supports two generation workflows:
 
-1. programatically calling a function in your build pipeline
-2. as a plugin for the [Custom Element Manifest Analyzer](https://custom-elements-manifest.open-wc.org/)
+1. Calling a function in your build pipeline
+2. Using a plugin for the [Custom Element Manifest Analyzer](https://custom-elements-manifest.open-wc.org/)
 
 ### Install
 
 ```bash
-npm i -D @wc-toolkit/jsx-types
+npm install --save-dev @wc-toolkit/svelte-types
 ```
 
 ### Build Pipeline
 
 ```ts
-import { generateJsxTypes, JsxTypesOptions } from "@wc-toolkit/jsx-types";
-import manifest from "./path/to/custom-elements.json";
+import {
+  generateSvelteTypes,
+  type SvelteTypesOptions,
+} from "@wc-toolkit/svelte-types";
+import manifest from "./custom-elements.json";
 
-const options: JsxTypesOptions = {...};
+const options: SvelteTypesOptions = {
+  outdir: "./src",
+  fileName: "custom-elements-svelte.d.ts",
+};
 
-generateJsxTypes(manifest, options);
+generateSvelteTypes(manifest, options);
 ```
 
 ### CEM Analyzer
 
-#### Set-up
+#### Setup
 
-Ensure the following steps have been taken in your component library prior to using this plugin:
+Ensure the following steps have been completed before using the plugin:
 
-- Install and set up the [Custom Elements Manifest Analyzer](https://custom-elements-manifest.open-wc.org/analyzer/getting-started/)
-- Create a [config file](https://custom-elements-manifest.open-wc.org/analyzer/config/#config-file)
+- Install and configure the [Custom Elements Manifest Analyzer](https://custom-elements-manifest.open-wc.org/analyzer/getting-started/)
+- Create a [manifest configuration file](https://custom-elements-manifest.open-wc.org/analyzer/config/#config-file)
 
 #### Import
 
 ```js
 // custom-elements-manifest.config.js
-
-import { jsxTypesPlugin } from "@wc-toolkit/jsx-types";
-
-const options = {...};
+import { customElementSveltePlugin } from "@wc-toolkit/svelte-types";
 
 export default {
   plugins: [
-    jsxTypesPlugin(options)
+    customElementSveltePlugin({
+      outdir: "./src",
+      fileName: "custom-elements-svelte.d.ts",
+    }),
   ],
 };
 ```
 
 ## Implementation
 
-In order for teams to take advantage of this, all they need to do is import the types in their project. There are two ways to configure the JSX types:
+The generated file declares `svelteHTML.IntrinsicElements`, so Svelte projects only need to include the file in their TypeScript project.
 
-### Option 1: TSConfig Configuration
+### Option 1: Include the Generated File
 
-Add the types to your `tsconfig.json`:
+Write the generated file somewhere covered by your `tsconfig.json`:
+
+```json
+{
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.svelte",
+    "src/custom-elements-svelte.d.ts"
+  ]
+}
+```
+
+### Option 2: Configure TypeScript Types
+
+If the generated declaration is published by a package, add its path to `tsconfig.json`:
 
 ```json
 {
   "compilerOptions": {
-    "types": ["path/to/jsx-types"]
+    "types": ["my-library/custom-elements-svelte"]
   }
 }
 ```
 
-### Option 2: TypeScript Declaration File
+The generated declarations can then be used directly in Svelte markup:
 
-Create a declaration file and extend JSX's `IntrinsicElements`:
-
-```ts
-// custom-elements-types.d.ts
-import type { CustomElements, CustomCssProperties } from "path/to/jsx-types";
-
-declare module "my-library" {
-  namespace JSX {
-    interface IntrinsicElements extends CustomElements {}
-  }
-  export interface CSSProperties extends CustomCssProperties {}
-}
+```svelte
+<x-button
+  label="Save"
+  value={value}
+  on:change={handleChange}
+/>
 ```
-
-> **_NOTE:_** Libraries will have their own module names you will need to use when extending the `IntrinsicElements` interface. For example, Preact requires you to use the `"preact"` module name instead of `"my-library"` (`declare module "preact"`) and StencilJS uses "@stencil/core" (`declare module "@stencil/core"`).
-
-
 
 ## Configuration Options
 
-The `JsxTypesOptions` interface provides several configuration options to customize how types are generated for your project:
+The `SvelteTypesOptions` type provides configuration options for the generator.
 
-### Basic Options
+### Output Options
 
 #### `fileName`
+
 - **Type:** `string`
-- **Default:** `"custom-element-jsx.d.ts"`
-- **Description:** The name of the generated type definition file.
+- **Default:** `"custom-elements-svelte.d.ts"`
+- **Description:** Name of the generated declaration file. If omitted or set to `undefined`, the generator returns the declaration text without writing a file.
 
 ```ts
 {
-  fileName: "my-components.d.ts"
+  fileName: "my-components.d.ts";
 }
 ```
 
 #### `outdir`
+
 - **Type:** `string`
 - **Default:** `"./"`
-- **Description:** The output directory where the generated types file will be saved.
+- **Description:** Directory where the generated declaration file is written.
 
 ```ts
 {
-  outdir: "./types"
+  outdir: "./src/types";
 }
 ```
 
 #### `exclude`
+
 - **Type:** `string[]`
 - **Default:** `[]`
-- **Description:** Array of component names to exclude from type generation.
+- **Description:** Component class names to exclude from generation.
 
 ```ts
 {
-  exclude: ["my-internal-component", "my-deprecated-component"]
+  exclude: ["InternalComponent", "DeprecatedComponent"];
 }
 ```
 
-### Import Configuration
+### Import Options
 
 #### `componentTypePath`
+
 - **Type:** `(name: string, tag?: string, modulePath?: string) => string`
-- **Description:** A function that returns the import path for each component. This is useful when you need to customize the import statements in the generated types.
+- **Description:** Returns the module path used to import each component class. The third argument is the component's source module path from the manifest. When configured, generated attributes reference the imported component class properties.
 
 ```ts
 {
-  componentTypePath: (name, tagName) => 
-    `my-lib/components/${tagName}/${tagName}.js`
+  componentTypePath: (name, tagName) =>
+    `my-library/components/${tagName}/${tagName}.js`;
 }
+```
+
+The generated declaration expects named component exports:
+
+```ts
+import type { XButton } from "my-library/components/x-button/x-button.js";
 ```
 
 #### `globalTypePath`
+
 - **Type:** `string`
-- **Description:** When provided, generates a single import statement for all components from this path instead of individual imports. This is useful if your library has a barrel file that exports all components.
+- **Description:** Imports all component classes and named event detail types from one module instead of generating per-component import paths.
 
 ```ts
 {
-  globalTypePath: "my-lib"
+  globalTypePath: "my-library/types";
 }
 ```
 
-#### `defaultExport`
-- **Type:** `boolean`
-- **Default:** `false`
-- **Description:** Set to `true` if your component classes use default exports instead of named exports.
+When `globalTypePath` or `componentTypePath` is not configured, types are read directly from the manifest.
+
+### Event Options
+
+#### `globalEvents`
+
+- **Type:** `string`
+- **Description:** Adds custom event declarations to every generated component type.
 
 ```ts
 {
-  defaultExport: true
-}
-```
-
-### Event Configuration
-
-#### `stronglyTypedEvents`
-- **Type:** `boolean`
-- **Default:** `false`
-- **Description:** This feature is highly recommended for better type safety and autocomplete. Creates event types where the event's target is strongly typed to the custom element, providing better autocomplete and type safety for event handlers. When enabled, `e.detail` and `e.target` are strongly typed.
-
-```ts
-{
-  stronglyTypedEvents: true
+  globalEvents: `
+    /** Fired when application telemetry is recorded. */
+    "on:telemetry"?: (event: CustomEvent<TelemetryDetail>) => void;
+  `;
 }
 ```
 
 #### `includeDefaultDOMEvents`
+
 - **Type:** `boolean`
 - **Default:** `false`
-- **Description:** Includes standard DOM events (e.g., `onClick`, `onHover`, etc.) in the generated types. The down side is that it can pollute the component API with attributes that aren't relevant to the component.
+- **Description:** Adds common DOM event handlers such as `on:click`, `onclick`, `on:focus`, and `onfocus` to every component. Enable this only when those handlers are useful for your component API.
 
 ```ts
 {
-  includeDefaultDOMEvents: true
+  includeDefaultDOMEvents: true;
 }
 ```
 
-#### `globalEvents`
-- **Type:** `string`
-- **Description:** TypeScript type reference for global event props to add to all component types. This can be useful for adding custom events or event handlers to all components for things like custom telemetry.
+#### `includeModernEventHandlers`
 
-```ts
-{
-  globalEvents: "React.DOMAttributes<HTMLElement>"
-}
-```
-
-### Additional Options
-
-#### `allowUnknownProps`
 - **Type:** `boolean`
-- **Default:** `false`
-- **Description:** Allows users to add undefined attributes or props to the custom elements without TypeScript errors.
+- **Default:** `true`
+- **Description:** Includes Svelte 5 event attributes such as `onclick` alongside legacy `on:` handlers. Set to `false` when supporting only the legacy event directive syntax.
 
 ```ts
 {
-  allowUnknownProps: true
+  includeModernEventHandlers: true;
 }
 ```
 
-#### `useCemTypes`
-- **Type:** `boolean`
-- **Default:** `false`
-- **Description:** Uses the property types extracted into the custom elements manifest instead of generating prop types from the imported component class. This is especially useful for JavaScript components whose typings come from JSDoc or other CEM plugins.
+Custom events from the manifest are generated using Svelte's legacy event directive syntax and, by default, Svelte 5 event attributes:
+
+```svelte
+<x-button on:change={handleChange} />
+<x-button onchange={handleChange} />
+```
+
+For a manifest event typed as `CustomEvent<ChangeDetail>`, the generated handlers are:
 
 ```ts
-{
-  useCemTypes: true
-}
+"on:change"?: (e: CustomEvent<ChangeDetail>) => void;
+"onchange"?: (e: CustomEvent<ChangeDetail>) => void;
 ```
+
+Non-custom event types from the manifest are preserved. For example, an event typed as `MouseEvent` generates a `MouseEvent` handler rather than wrapping it in `CustomEvent`.
+
+### Manifest Type Options
 
 #### `typesSrc`
+
 - **Type:** `string`
-- **Default:** `"type"`
-- **Description:** Property name on the CEM member or attribute to read types from when `useCemTypes` is enabled. This is useful when another tool like the [@wc-toolkit/type-parser](https://www.npmjs.com/package/@wc-toolkit/type-parser) adds alternate type properties such as `parsedType`.
+- **Description:** Reads types from an alternate property on CEM attributes or properties, such as `parsedType`. If not provided, the standard `type` field is used.
 
 ```ts
 {
-  useCemTypes: true,
-  typesSrc: "parsedType"
+  typesSrc: "parsedType";
 }
 ```
 
-#### `excludeCssCustomProperties`
-- **Type:** `boolean`
-- **Default:** `false`
-- **Description:** Excludes CSS custom property types from generation.
+This is useful when another CEM plugin adds parsed or transformed type information:
 
-```ts
+```json
 {
-  excludeCssCustomProperties: true
+  "name": "variant",
+  "type": { "text": "ButtonVariant" },
+  "parsedType": { "text": "\"primary\" | \"secondary\"" }
 }
 ```
+
+### Tag Formatting
 
 #### `tagFormatter`
+
 - **Type:** `(tagName: string) => string`
-- **Description:** Optional function to format tag names before processing. Useful for adding prefixes, suffixes, or transforming tag names.
+- **Description:** Formats tag names before they are added to `CustomElements`.
 
 ```ts
 {
-  tagFormatter: (tagName) => tagName.replace("my-", "custom-")
+  tagFormatter: (tagName) => tagName.replace("my-", "custom-");
 }
 ```
 
 ### Utility Options
 
 #### `skip`
+
 - **Type:** `boolean`
 - **Default:** `false`
-- **Description:** Skips the entire type generation process when set to `true`.
+- **Description:** Prevents generation when `true`.
 
 ```ts
 {
-  skip: process.env.SKIP_TYPES === "true"
+  skip: process.env.SKIP_TYPES === "true";
 }
 ```
 
 #### `debug`
+
 - **Type:** `boolean`
 - **Default:** `false`
-- **Description:** Enables debug logging to help troubleshoot type generation issues.
+- **Description:** Enables generator logs.
 
 ```ts
 {
-  debug: true
+  debug: true;
 }
 ```
 
-### Deprecated Options
+#### `componentDescriptionOptions`
 
-#### `prefix` _(deprecated)_
-- **Type:** `string`
-- **Description:** Use `tagFormatter` instead. Adds a prefix to tag references.
-
-#### `suffix` _(deprecated)_
-- **Type:** `string`
-- **Description:** Use `tagFormatter` instead. Adds a suffix to tag references.
-
-#### `overrideCustomEventType` _(deprecated)_
-- **Type:** `boolean`
-- **Default:** `false`
-- **Description:** This feature never worked as intended and will be removed in the next major version.
-
-## Framework-Specific Considerations
-
-### SolidJS
-
-When using these generated types with SolidJS, there are several important considerations to ensure proper integration:
-
-#### Custom TypeScript Declaration File
-
-If you are using a custom TypeScript declaration file, SolidJS has a custom type to include the attribute prefixes, so you will need to use `CustomElementsSolidJs` instead of `CustomElements`. For example:
+- **Type:** `ComponentDescriptionOptions`
+- **Description:** Configures the component documentation rendered into the generated declaration file, including description source and API order.
 
 ```ts
-// custom-elements-types.d.ts
-import type { CustomElementsSolidJs, CustomCssProperties } from "path/to/jsx-types";
-
-declare module "my-library" {
-  namespace JSX {
-    interface IntrinsicElements extends CustomElementsSolidJs {}
+{
+  componentDescriptionOptions: {
+    descriptionSrc: "summary",
+    order: ["attrsAndProps", "events", "slots", "methods", "cssProps"]
   }
-  export interface CSSProperties extends CustomCssProperties {}
 }
 ```
 
-#### Property Binding
+## Svelte Features
 
-SolidJS generates special type definitions that include property prefixes to handle different binding scenarios:
+### Component Properties
 
-- **`attr:propertyName`** - For attribute binding (string values)
-- **`prop:propertyName`** - For property binding (any type)
-- **`bool:propertyName`** - For boolean properties
+Public component properties are generated as typed component attributes. This is the valid way to pass values to lowercase custom elements in Svelte:
 
-This allows SolidJS to properly handle web component properties:
-
-```tsx
-// Attribute binding (as string)
-<my-component attr:value={someString} />
-
-// Property binding (with signals or objects)
-<my-component prop:value={someSignal()} />
-
-// Boolean property
-<my-component bool:disabled={isDisabled} />
+```svelte
+<x-slider value={value} />
 ```
 
-#### Custom Events
+Read-only and static properties are excluded. When a CEM property is associated with an attribute, it is emitted once using the attribute name.
 
-SolidJS uses the `on:` prefix for custom events. The generated types include proper event handler types:
+### Custom Events
 
-```tsx
-import { createSignal } from 'solid-js';
+Manifest events are available through `on:` handlers:
 
-const [value, setValue] = createSignal('');
-
-<my-input
-  prop:value={value()}
-  on:my-input={(e) => {
-    // e.target is strongly typed when stronglyTypedEvents is enabled
-    setValue(e.target.value);
-  }}
-  on:my-change={(e) => {
-    // e.detail is strongly typed when stronglyTypedEvents is enabled
-    console.log('Changed:', e.detail);
+```svelte
+<x-input
+  on:change={(event) => {
+    console.log(event.detail);
   }}
 />
 ```
 
-#### Recommended Configuration for SolidJS
+Named event detail types are imported automatically when the component type path is configured.
 
-When generating types for SolidJS projects, use the following configuration:
+### CSS Custom Properties
 
-```ts
-generateJsxTypes(manifest, {
-  outdir: "./types",
-  fileName: "custom-element-jsx.d.ts",
-  defaultExport: true, // if your components use default exports
-  stronglyTypedEvents: true, // for better event type safety
-  componentTypePath: (name, tagName) => 
-    `your-lib/components/${tagName}/${tagName}.js`
-});
+CEM CSS custom properties are generated as Svelte style directives and accept `string | number` values:
+
+```svelte
+<x-slider style:--track-color={trackColor} />
 ```
 
-#### TypeScript Declaration
-
-For SolidJS, create a declaration file that extends the `solid-js` JSX namespace:
+Svelte applies these values through its CSS custom-property wrapper. The generated declaration includes the property as:
 
 ```ts
-// custom-elements-types.d.ts
-import type { CustomElements, CustomCssProperties } from "./path/to/types/custom-element-jsx";
+"style:--track-color"?: string | number;
+```
 
-declare module "solid-js" {
-  namespace JSX {
-    interface IntrinsicElements extends CustomElements {}
+### Slots
+
+Slot metadata is included in the generated component documentation. Web component slots are used with Svelte's standard `slot` attribute:
+
+```svelte
+<x-card>
+  <span slot="title">Card title</span>
+  Card content
+</x-card>
+```
+
+### Refs and Methods
+
+The generator exports a `*Element` type for each component. When component type imports are configured, this aliases the imported class. Otherwise, it includes method signatures found in the manifest. Use it with Svelte's `bind:this`:
+
+```svelte
+<script lang="ts">
+  import type { DialogElement } from "./types/custom-elements-svelte";
+
+  let dialog: DialogElement;
+
+  function openDialog() {
+    dialog.showModal();
   }
-}
+</script>
 
-// Optional: Extend CSS properties
-declare module "csstype" {
-  interface Properties extends CustomCssProperties {}
-}
+<x-dialog bind:this={dialog} />
+<button onclick={openDialog}>Open</button>
 ```
 
-#### innerHTML and textContent
-
-SolidJS types also include `innerHTML` and `textContent` properties for setting element content:
-
-```tsx
-<my-component innerHTML="<strong>Bold text</strong>" />
-<my-component textContent="Plain text content" />
-```
-
-#### Reactive Property Updates
-
-When working with reactive values in SolidJS, always use the `prop:` prefix for non-string properties:
-
-```tsx
-import { createSignal } from 'solid-js';
-
-const [isOpen, setIsOpen] = createSignal(false);
-const [items, setItems] = createSignal([]);
-
-<my-dialog prop:open={isOpen()} />
-<my-list prop:items={items()} />
-```
-
-#### Refs and Methods
-
-Access custom element methods using SolidJS refs:
-
-```tsx
-import { onMount } from 'solid-js';
-
-let dialogRef: any;
-
-onMount(() => {
-  // Call custom element methods
-  dialogRef?.show();
-});
-
-<my-dialog ref={dialogRef}>
-  Dialog content
-</my-dialog>
-```
-
-### React
-
-For React 19+ projects, the types work with the native custom element support:
-
-```tsx
-<my-component
-  value="hello"
-  disabled={false}
-  onmy-event={(e) => console.log(e)}
-/>
-```
-
-### Preact
-
-Preact requires extending the `"preact"` module:
+Named CEM slots also produce a slot-name union for application code:
 
 ```ts
-declare module "preact" {
-  namespace JSX {
-    interface IntrinsicElements extends CustomElements {}
-  }
-}
-```
+import type { CardSlots } from "./types/custom-elements-svelte";
 
-### StencilJS
-
-StencilJS requires extending the `"@stencil/core"` module:
-
-```ts
-declare module "@stencil/core" {
-  namespace JSX {
-    interface IntrinsicElements extends CustomElements {}
-  }
-}
+const slotName: CardSlots = "header";
 ```
 
 ## Complete Configuration Example
 
-Here's a comprehensive example showing all commonly used options:
-
 ```ts
-import { generateJsxTypes } from "@wc-toolkit/jsx-types";
+import { generateSvelteTypes } from "@wc-toolkit/svelte-types";
 import manifest from "./custom-elements.json";
 
-generateJsxTypes(manifest, {
-  // Output configuration
-  fileName: "custom-element-jsx.d.ts",
-  outdir: "./types",
-  
+generateSvelteTypes(manifest, {
+  // Output
+  fileName: "custom-elements-svelte.d.ts",
+  outdir: "./src/types",
+
   // Component filtering
-  exclude: ["internal-component"],
-  
-  // Import configuration
-  componentTypePath: (name, tagName, modulePath) => {
-    return `my-library/components/${tagName}/${tagName}.js`;
-  },
-  defaultExport: true,
-  
-  // Event configuration
-  stronglyTypedEvents: true,
+  exclude: ["InternalComponent"],
+
+  // Type imports
+  componentTypePath: (name, tagName) =>
+    `my-library/components/${tagName}/${tagName}.js`,
+
+  // Events
   includeDefaultDOMEvents: true,
-  
-  // Tag formatting
-  tagFormatter: (tagName) => tagName.toLowerCase(),
-  
-  // Additional features
-  allowUnknownProps: false,
-  useCemTypes: true,
+  globalEvents: `
+    "on:telemetry"?: (event: CustomEvent<TelemetryDetail>) => void;
+  `,
+
+  // Manifest types and tag names
   typesSrc: "parsedType",
-  excludeCssCustomProperties: false,
-  
-  // Development
+  tagFormatter: (tagName) => tagName.toLowerCase(),
+
+  // Component documentation and development
+  componentDescriptionOptions: {
+    descriptionSrc: "summary",
+  },
   debug: process.env.DEBUG === "true",
   skip: false,
 });
 ```
 
-For more information about this library and other Web Component tools, check out the [WC Toolkit website](https://wc-toolkit.com).
+For more information about this package and other Web Component tools, visit the [WC Toolkit website](https://wc-toolkit.com).
