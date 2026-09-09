@@ -1,6 +1,6 @@
 {
   "name": "@wc-toolkit/svelte-types",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "This package generates Svelte types for custom elements / web components",
   "type": "module",
   "main": "./dist/index.cjs",
