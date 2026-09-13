@@ -19,7 +19,9 @@ export function customElementSveltePlugin(options: SvelteTypesOptions = {}) {
 }
 
 /** Plugin for @wc-toolkit/cem-generator that generates Svelte types from the finalized CEM. */
-export function svelteTypesGeneratorPlugin(options: SvelteTypesOptions = {}): Plugin {
+export function svelteTypesGeneratorPlugin(
+  options: SvelteTypesOptions = {},
+): Plugin {
   return {
     name: "@wc-toolkit/svelte-types:cem-generator",
     afterGenerate(manifest: Package) {
