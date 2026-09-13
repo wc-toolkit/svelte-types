@@ -22,10 +22,11 @@ Generated declarations include:
 
 ## Usage
 
-This package supports two generation workflows:
+This package supports three generation workflows:
 
 1. Calling a function in your build pipeline
 2. Using a plugin for the [Custom Element Manifest Analyzer](https://custom-elements-manifest.open-wc.org/)
+3. Using a plugin for [`@wc-toolkit/cem-generator`](https://github.com/wc-toolkit/cem-generator)
 
 ### Install
 
@@ -73,6 +74,17 @@ export default {
     }),
   ],
 };
+```
+
+### cem-generator Plugin
+
+```ts
+import { generateCem } from "@wc-toolkit/cem-generator";
+import { svelteTypesGeneratorPlugin } from "@wc-toolkit/svelte-types";
+
+generateCem({
+  plugins: [svelteTypesGeneratorPlugin({ outdir: "./src" })],
+});
 ```
 
 ## Implementation
