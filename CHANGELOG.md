@@ -1,5 +1,11 @@
 # @wc-toolkit/svelte-types
 
+## 1.0.3
+
+### Patch Changes
+
+- adbaf67: Keep Svelte type generation from mutating the source Custom Elements Manifest.
+
 ## 1.0.2
 
 ### Patch Changes
