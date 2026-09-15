@@ -13,7 +13,7 @@ export function customElementSveltePlugin(options: SvelteTypesOptions = {}) {
   return {
     name: "@wc-toolkit/svelte-types",
     packageLinkPhase({ customElementsManifest }: any) {
-      generateSvelteTypes(customElementsManifest, options);
+      generateSvelteTypes(cloneManifest(customElementsManifest), options);
     },
   };
 }
@@ -25,7 +25,11 @@ export function svelteTypesGeneratorPlugin(
   return {
     name: "@wc-toolkit/svelte-types:cem-generator",
     afterGenerate(manifest: Package) {
-      generateSvelteTypes(manifest, options);
+      generateSvelteTypes(cloneManifest(manifest), options);
     },
   };
+}
+
+function cloneManifest(manifest: unknown): Package {
+  return structuredClone(manifest) as Package;
 }
