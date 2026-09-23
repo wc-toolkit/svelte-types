@@ -1,5 +1,11 @@
 # @wc-toolkit/svelte-types
 
+## 1.0.4
+
+### Patch Changes
+
+- 1512b37: Support generating valid Svelte types from CSS-only custom element declarations in a Custom Elements Manifest.
+
 ## 1.0.3
 
 ### Patch Changes
