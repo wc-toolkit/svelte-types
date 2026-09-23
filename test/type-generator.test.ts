@@ -49,6 +49,31 @@ const manifest = {
   ],
 } satisfies cem.Package;
 
+const cssOnlyManifest = {
+  schemaVersion: "1.0.0",
+  readme: "",
+  modules: [
+    {
+      kind: "javascript-module",
+      path: "src/styles.css",
+      declarations: [
+        {
+          kind: "class",
+          name: "my-badge",
+          tagName: "my-badge",
+          customElement: true,
+          superclass: { name: "HTMLUnknownElement" },
+          attributes: [
+            { name: "variant", type: { text: '"info" | "warning"' } },
+          ],
+          cssProperties: [{ name: "--badge-color" }],
+          slots: [{ name: "icon" }, { name: "" }],
+        },
+      ],
+    },
+  ],
+} satisfies cem.Package;
+
 describe("generateSvelteTypes", () => {
   it("generates Svelte intrinsic element types", () => {
     const template = generateSvelteTypes(manifest, { fileName: undefined });
@@ -84,6 +109,27 @@ describe("generateSvelteTypes", () => {
     expect(template).toContain('"lib-x-button"');
     expect(template).toContain("Button['label']");
     expect(template).toContain("export type ButtonElement = Button;");
+  });
+
+  it("generates CSS-only declarations without component imports", () => {
+    const template = generateSvelteTypes(cssOnlyManifest, {
+      fileName: undefined,
+      globalTypePath: "styles/types",
+      tagFormatter: (tag) => `lib-${tag}`,
+    });
+
+    expect(template).toContain('export type MyBadgeProps = {');
+    expect(template).toContain('"variant"?: "info" | "warning";');
+    expect(template).toContain('"style:--badge-color"?: string | number;');
+    expect(template).toContain(
+      "export type MyBadgeElement = HTMLUnknownElement;",
+    );
+    expect(template).toContain('export type MyBadgeSlots = "icon" | "";');
+    expect(template).toContain(
+      '"lib-my-badge": Partial<MyBadgeProps & BaseProps & BaseEvents>;',
+    );
+    expect(template).not.toContain('from "styles/types"');
+    expect(template).not.toContain("my-badgeProps");
   });
 
   it("passes the component module path and emits modern event attributes", () => {

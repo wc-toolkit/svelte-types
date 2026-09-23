@@ -9,6 +9,7 @@ import {
   getComponentPublicProperties,
   getCustomEventDetailTypes,
   getMemberDescription,
+  toPascalCase,
 } from "@wc-toolkit/cem-utilities";
 import type { Component } from "@wc-toolkit/cem-utilities";
 import { Logger } from "./logger";
@@ -85,11 +86,12 @@ export type CustomElements = {
 ${components
   .map((component) => {
     const tagName = formatTagName(component.tagName!, options);
+    const typeName = getComponentTypeName(component);
     return `
   /**
     ${getComponentDetailsTemplate(toUtilityComponent(component), options.componentDescriptionOptions, true)}
   */
-  "${tagName}": Partial<${component.name}Props & BaseProps & BaseEvents>;`;
+  "${tagName}": Partial<${typeName}Props & BaseProps & BaseEvents>;`;
   })
   .join("\n")}
 };
@@ -108,6 +110,8 @@ function getImports(
   const names = new Map<string, Set<string>>();
 
   for (const component of components) {
+    if (isCssOnlyComponent(component)) continue;
+
     const importPath = options.globalTypePath
       ? options.globalTypePath
       : typeof options.componentTypePath === "function"
@@ -141,12 +145,16 @@ function getComponentPropsTemplate(
   component: cem.CustomElement,
   options: SvelteTypesOptions,
 ) {
+  const typeName = getComponentTypeName(component);
   const typeFor = (
     name: string,
     source: unknown,
     fallback: cem.Type | undefined,
   ) => {
-    if (options.globalTypePath || options.componentTypePath) {
+    if (
+      !isCssOnlyComponent(component) &&
+      (options.globalTypePath || options.componentTypePath)
+    ) {
       return `${component.name}['${name}']`;
     }
     const configured = getConfiguredType(source, options.typesSrc);
@@ -200,7 +208,7 @@ ${handlers.join("\n")}`;
     )
     .join("\n");
 
-  return `export type ${component.name}Props = {
+  return `export type ${typeName}Props = {
 ${attributes}
 ${properties}
 ${events}
@@ -221,11 +229,17 @@ function getComponentElementTemplate(
   component: cem.CustomElement,
   options: SvelteTypesOptions,
 ) {
-  const elementType = `${component.name}Element`;
+  const typeName = getComponentTypeName(component);
+  const elementType = `${typeName}Element`;
   const slots = component.slots?.map((slot) => JSON.stringify(slot.name)) ?? [];
   const slotType = slots.length
-    ? `export type ${component.name}Slots = ${slots.join(" | ")};`
+    ? `export type ${typeName}Slots = ${slots.join(" | ")};`
     : "";
+
+  if (isCssOnlyComponent(component)) {
+    return `export type ${elementType} = HTMLUnknownElement;
+${slotType}`;
+  }
 
   if (options.globalTypePath || options.componentTypePath) {
     return `export type ${elementType} = ${component.name};
@@ -255,6 +269,16 @@ ${slotType}`;
 
 function formatTagName(tagName: string, options: SvelteTypesOptions) {
   return options.tagFormatter ? options.tagFormatter(tagName) : tagName;
+}
+
+function isCssOnlyComponent(component: cem.CustomElement) {
+  return component.superclass?.name === "HTMLUnknownElement";
+}
+
+function getComponentTypeName(component: cem.CustomElement) {
+  return isCssOnlyComponent(component)
+    ? toPascalCase(component.tagName!)
+    : component.name;
 }
 
 function toUtilityComponent(component: cem.CustomElement): Component {
