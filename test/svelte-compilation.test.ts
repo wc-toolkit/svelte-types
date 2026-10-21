@@ -57,6 +57,13 @@ describe("Svelte type-check integration", () => {
               cssProperties: [{ name: "--track-color" }],
             },
           ],
+          exports: [
+            {
+              kind: "js" as const,
+              name: "Button",
+              declaration: { name: "Button", module: "src/button.ts" },
+            },
+          ],
         },
       ],
     };
