@@ -59,15 +59,35 @@ const cssOnlyManifest = {
       declarations: [
         {
           kind: "class",
-          name: "my-badge",
-          tagName: "my-badge",
+          name: "Layout",
+          tagName: "zd-flex",
           customElement: true,
-          superclass: { name: "HTMLUnknownElement" },
-          attributes: [
-            { name: "variant", type: { text: '"info" | "warning"' } },
-          ],
+          attributes: [{ name: "variant", type: { text: "row | column" } }],
           cssProperties: [{ name: "--badge-color" }],
           slots: [{ name: "icon" }, { name: "" }],
+        },
+      ],
+      exports: [],
+    },
+    {
+      kind: "javascript-module",
+      path: "src/button.ts",
+      declarations: [
+        {
+          kind: "class",
+          name: "Button",
+          tagName: "x-button",
+          customElement: true,
+          attributes: [
+            { name: "label", fieldName: "label", type: { text: "string" } },
+          ],
+        },
+      ],
+      exports: [
+        {
+          kind: "js",
+          name: "Button",
+          declaration: { name: "Button", module: "src/button.ts" },
         },
       ],
     },
@@ -75,6 +95,16 @@ const cssOnlyManifest = {
 } satisfies cem.Package;
 
 describe("generateSvelteTypes", () => {
+  it("does not mutate a manifest reused for sequential generation", () => {
+    const input = structuredClone(manifest);
+    const before = structuredClone(input);
+    const first = generateSvelteTypes(input, { fileName: undefined });
+    const second = generateSvelteTypes(input, { fileName: undefined });
+
+    expect(input).toEqual(before);
+    expect(second).toBe(first);
+  });
+
   it("generates Svelte intrinsic element types", () => {
     const template = generateSvelteTypes(manifest, { fileName: undefined });
 
@@ -92,7 +122,7 @@ describe("generateSvelteTypes", () => {
     expect(template).toContain(
       '"x-button": Partial<ButtonProps & BaseProps & BaseEvents>;',
     );
-    expect(template).toContain("declare namespace svelteHTML");
+    expect(template).toContain("declare global {\n  namespace svelteHTML");
     expect(template).not.toContain("declare module 'react'");
   });
 
@@ -118,18 +148,129 @@ describe("generateSvelteTypes", () => {
       tagFormatter: (tag) => `lib-${tag}`,
     });
 
-    expect(template).toContain('export type MyBadgeProps = {');
-    expect(template).toContain('"variant"?: "info" | "warning";');
+    expect(template).toContain("export type ZdFlexProps = {");
+    expect(template).toContain('"variant"?: "row" | "column";');
     expect(template).toContain('"style:--badge-color"?: string | number;');
+    expect(template).toContain("export type ZdFlexElement = HTMLElement;");
+    expect(template).toContain('export type ZdFlexSlots = "icon" | "";');
     expect(template).toContain(
-      "export type MyBadgeElement = HTMLUnknownElement;",
+      '"lib-zd-flex": Partial<ZdFlexProps & BaseProps & BaseEvents>;',
     );
-    expect(template).toContain('export type MyBadgeSlots = "icon" | "";');
+    expect(template).not.toMatch(
+      /import type \{[^}]*Layout[^}]*\} from "styles\/types"/,
+    );
+    expect(template).not.toContain("zd-flexProps");
     expect(template).toContain(
-      '"lib-my-badge": Partial<MyBadgeProps & BaseProps & BaseEvents>;',
+      '"lib-x-button": Partial<ButtonProps & BaseProps & BaseEvents>;',
     );
-    expect(template).not.toContain('from "styles/types"');
-    expect(template).not.toContain("my-badgeProps");
+  });
+
+  it("respects exclude for CSS-only declarations", () => {
+    const template = generateSvelteTypes(cssOnlyManifest, {
+      fileName: undefined,
+      exclude: ["Layout"],
+    });
+
+    expect(template).not.toContain('"zd-flex"');
+    expect(template).toContain('"x-button"');
+  });
+
+  it("imports a shared event detail type only once and skips generic detail imports", () => {
+    const manifest = {
+      schemaVersion: "1.0.0",
+      readme: "",
+      modules: ["first", "second"].map((name) => ({
+        kind: "javascript-module" as const,
+        path: `src/${name}.ts`,
+        declarations: [
+          {
+            kind: "class" as const,
+            name: name === "first" ? "First" : "Second",
+            tagName: `x-${name}`,
+            customElement: true,
+            events: [
+              { name: "error", type: { text: "CustomEvent<ErrorDetail>" } },
+              {
+                name: "generic",
+                type: { text: "CustomEvent<Record<string, never>>" },
+              },
+            ],
+          },
+        ],
+        exports: [
+          {
+            kind: "js" as const,
+            name: name === "first" ? "First" : "Second",
+            declaration: {
+              name: name === "first" ? "First" : "Second",
+              module: `src/${name}.ts`,
+            },
+          },
+        ],
+      })),
+    } satisfies cem.Package;
+
+    const template = generateSvelteTypes(manifest, {
+      fileName: undefined,
+      outdir: "./types",
+    });
+    const detailImports = template
+      ?.split("\n")
+      .filter(
+        (line) =>
+          line.startsWith("import type") && line.includes("ErrorDetail"),
+      );
+    expect(detailImports).toHaveLength(1);
+    expect(detailImports?.[0]).toContain('from "../src/first.ts"');
+    expect(
+      template
+        ?.split("\n")
+        .some(
+          (line) => line.startsWith("import type") && line.includes("Record"),
+        ),
+    ).toBe(false);
+  });
+
+  it("normalizes scoped file paths while preserving bare package specifiers", () => {
+    const manifest = {
+      schemaVersion: "1.0.0",
+      readme: "",
+      modules: [
+        {
+          kind: "javascript-module" as const,
+          path: "@scope/components/button.ts",
+          declarations: [
+            {
+              kind: "class" as const,
+              name: "Button",
+              tagName: "x-button",
+              customElement: true,
+              events: [
+                { name: "done", type: { text: "CustomEvent<DoneDetail>" } },
+              ],
+            },
+          ],
+          exports: [
+            {
+              kind: "js" as const,
+              name: "Button",
+              declaration: {
+                name: "Button",
+                module: "@scope/components/button.ts",
+              },
+            },
+          ],
+        },
+      ],
+    } satisfies cem.Package;
+    const template = generateSvelteTypes(manifest, {
+      fileName: undefined,
+      outdir: "./types",
+    });
+
+    expect(template).toContain(
+      'import type { DoneDetail } from "../@scope/components/button.ts";',
+    );
   });
 
   it("passes the component module path and emits modern event attributes", () => {

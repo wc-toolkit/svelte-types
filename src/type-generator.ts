@@ -46,7 +46,7 @@ export function generateSvelteTypes(
     return;
   }
 
-  const template = getTypeTemplate(manifest, mergedOptions);
+  const template = getTypeTemplate(structuredClone(manifest), mergedOptions);
 
   if (mergedOptions.fileName) {
     createOutDir(mergedOptions.outdir);
@@ -64,7 +64,10 @@ export function generateSvelteTypes(
 function getTypeTemplate(manifest: cem.Package, options: SvelteTypesOptions) {
   const components = getAllComponents(manifest, options.exclude).filter(
     (component) =>
-      component.customElement && component.name && component.tagName,
+      !options.exclude?.includes(component.name) &&
+      component.customElement &&
+      component.name &&
+      component.tagName,
   ) as unknown as cem.CustomElement[];
 
   return `
@@ -79,25 +82,27 @@ ${options.globalEvents ?? ""}
 ${options.includeDefaultDOMEvents ? getSvelteGlobalEvents(options.includeModernEventHandlers) : ""}
 };
 
-${components.map((component) => getComponentPropsTemplate(component, options)).join("\n")}
-${components.map((component) => getComponentElementTemplate(component, options)).join("\n")}
+${components.map((component) => getComponentPropsTemplate(component, options, manifest)).join("\n")}
+${components.map((component) => getComponentElementTemplate(component, options, manifest)).join("\n")}
 
 export type CustomElements = {
 ${components
   .map((component) => {
     const tagName = formatTagName(component.tagName!, options);
-    const typeName = getComponentTypeName(component);
+    const typeName = getComponentTypeName(component, manifest);
     return `
   /**
     ${getComponentDetailsTemplate(toUtilityComponent(component), options.componentDescriptionOptions, true)}
   */
-  "${tagName}": Partial<${typeName}Props & BaseProps & BaseEvents>;`;
+   "${tagName}": Partial<${typeName}Props & BaseProps & BaseEvents>;`;
   })
   .join("\n")}
 };
 
-declare namespace svelteHTML {
-  interface IntrinsicElements extends CustomElements {}
+declare global {
+  namespace svelteHTML {
+    interface IntrinsicElements extends CustomElements {}
+  }
 }
 `;
 }
@@ -108,28 +113,77 @@ function getImports(
   options: SvelteTypesOptions,
 ) {
   const names = new Map<string, Set<string>>();
+  const importedTypes = new Set<string>();
 
   for (const component of components) {
-    if (isCssOnlyComponent(component)) continue;
+    if (isCssOnlyComponent(component, manifest)) continue;
 
+    const componentModulePath = getComponentModulePath(manifest, component);
     const importPath = options.globalTypePath
       ? options.globalTypePath
       : typeof options.componentTypePath === "function"
         ? options.componentTypePath(
             component.name,
             component.tagName,
-            getComponentModulePath(manifest, component),
+            componentModulePath,
           )
-        : undefined;
+        : componentModulePath
+          ? normalizeImportPath(componentModulePath, options.outdir)
+          : undefined;
 
-    if (!importPath) continue;
+    if (options.globalTypePath || options.componentTypePath) {
+      if (importPath && !importedTypes.has(component.name)) {
+        addImport(names, importPath, component.name);
+        importedTypes.add(component.name);
+      }
+    }
 
-    addImport(names, importPath, component.name);
-    for (const eventType of getCustomEventDetailTypes(
-      toUtilityComponent(component),
-      [component.name],
-    )) {
-      addImport(names, importPath, eventType);
+    if (importPath) {
+      const eventTypes = new Set([
+        ...getCustomEventDetailTypes(toUtilityComponent(component), [
+          component.name,
+        ]),
+        ...(component.events ?? [])
+          .map((event) =>
+            /^CustomEvent<(.+)>$/
+              .exec(event.type?.text?.trim() ?? "")?.[1]
+              ?.trim(),
+          )
+          .filter((detail): detail is string =>
+            Boolean(detail && /^[A-Z][\w$]*$/.test(detail)),
+          ),
+      ]);
+      for (const eventType of eventTypes) {
+        if (importedTypes.has(eventType)) continue;
+        addImport(names, importPath, eventType);
+        importedTypes.add(eventType);
+      }
+    }
+
+    if (!options.globalTypePath && !options.componentTypePath) {
+      const types = [
+        ...(component.attributes ?? []).map(
+          (attribute) =>
+            getConfiguredType(attribute, options.typesSrc) ?? attribute.type,
+        ),
+        ...(component.members ?? []).flatMap((member) =>
+          "type" in member
+            ? [getConfiguredType(member, options.typesSrc) ?? member.type]
+            : [],
+        ),
+      ];
+      for (const type of types) {
+        for (const reference of type?.references ?? []) {
+          const name = reference.name;
+          const referencePath = reference.package ?? reference.module;
+          if (!name || !referencePath || importedTypes.has(name)) continue;
+          const resolvedPath = reference.package
+            ? reference.package
+            : normalizeImportPath(referencePath, options.outdir);
+          addImport(names, resolvedPath, name);
+          importedTypes.add(name);
+        }
+      }
     }
   }
 
@@ -144,21 +198,21 @@ function getImports(
 function getComponentPropsTemplate(
   component: cem.CustomElement,
   options: SvelteTypesOptions,
+  manifest: cem.Package,
 ) {
-  const typeName = getComponentTypeName(component);
+  const typeName = getComponentTypeName(component, manifest);
+  const cssOnly = isCssOnlyComponent(component, manifest);
   const typeFor = (
     name: string,
     source: unknown,
     fallback: cem.Type | undefined,
   ) => {
-    if (
-      !isCssOnlyComponent(component) &&
-      (options.globalTypePath || options.componentTypePath)
-    ) {
+    if (!cssOnly && (options.globalTypePath || options.componentTypePath)) {
       return `${component.name}['${name}']`;
     }
     const configured = getConfiguredType(source, options.typesSrc);
-    return configured?.text || fallback?.text || "string";
+    const text = configured?.text || fallback?.text || "string";
+    return cssOnly ? normalizeCssUnion(text) : text;
   };
 
   const attributes = (component.attributes ?? [])
@@ -228,16 +282,17 @@ function addImport(
 function getComponentElementTemplate(
   component: cem.CustomElement,
   options: SvelteTypesOptions,
+  manifest: cem.Package,
 ) {
-  const typeName = getComponentTypeName(component);
+  const typeName = getComponentTypeName(component, manifest);
   const elementType = `${typeName}Element`;
   const slots = component.slots?.map((slot) => JSON.stringify(slot.name)) ?? [];
   const slotType = slots.length
     ? `export type ${typeName}Slots = ${slots.join(" | ")};`
     : "";
 
-  if (isCssOnlyComponent(component)) {
-    return `export type ${elementType} = HTMLUnknownElement;
+  if (isCssOnlyComponent(component, manifest)) {
+    return `export type ${elementType} = HTMLElement;
 ${slotType}`;
   }
 
@@ -271,12 +326,39 @@ function formatTagName(tagName: string, options: SvelteTypesOptions) {
   return options.tagFormatter ? options.tagFormatter(tagName) : tagName;
 }
 
-function isCssOnlyComponent(component: cem.CustomElement) {
-  return component.superclass?.name === "HTMLUnknownElement";
+function isCssOnlyComponent(
+  component: cem.CustomElement & { modulePath?: string },
+  manifest?: cem.Package,
+) {
+  if (component.superclass?.name === "HTMLUnknownElement") return true;
+  if (!component.name || !component.tagName) return false;
+  if (
+    component.name === component.tagName ||
+    !/^[A-Za-z_$][\w$]*$/.test(component.name)
+  ) {
+    return true;
+  }
+  const module = manifest?.modules.find(
+    (candidate) =>
+      candidate.path === component.modulePath &&
+      candidate.declarations?.some(
+        (declaration) => declaration.name === component.name,
+      ),
+  );
+  if (!manifest || !module) return false;
+  return !module.exports?.some(
+    (declaration) =>
+      declaration.kind === "js" &&
+      (declaration.name === component.name ||
+        declaration.declaration.name === component.name),
+  );
 }
 
-function getComponentTypeName(component: cem.CustomElement) {
-  return isCssOnlyComponent(component)
+function getComponentTypeName(
+  component: cem.CustomElement,
+  manifest?: cem.Package,
+) {
+  return isCssOnlyComponent(component, manifest)
     ? toPascalCase(component.tagName!)
     : component.name;
 }
@@ -302,6 +384,52 @@ function getComponentModulePath(
       (declaration) => declaration.name === component.name,
     ),
   )?.path;
+}
+
+function normalizeImportPath(importPath: string, outdir?: string) {
+  if (importPath.startsWith("@") && !/\.[cm]?[jt]sx?$/.test(importPath)) {
+    return importPath;
+  }
+  const looksLikeFilePath =
+    path.isAbsolute(importPath) ||
+    importPath.startsWith(".") ||
+    importPath.includes("/") ||
+    /\.[cm]?[jt]sx?$/.test(importPath);
+  if (!looksLikeFilePath) return importPath;
+  const relativePath = path
+    .relative(path.resolve(outdir ?? "./"), path.resolve(importPath))
+    .split(path.sep)
+    .join("/");
+  return relativePath.startsWith(".") ? relativePath : `./${relativePath}`;
+}
+
+function normalizeCssUnion(type: string) {
+  const tsTypes = new Set([
+    "any",
+    "bigint",
+    "boolean",
+    "false",
+    "never",
+    "null",
+    "number",
+    "object",
+    "string",
+    "symbol",
+    "this",
+    "true",
+    "undefined",
+    "unknown",
+    "void",
+  ]);
+  return type
+    .split("|")
+    .map((member) => {
+      const value = member.trim();
+      return /^[a-z][\w-]*$/.test(value) && !tsTypes.has(value)
+        ? JSON.stringify(value)
+        : value;
+    })
+    .join(" | ");
 }
 
 function getSvelteGlobalEvents(includeModern: boolean | undefined) {

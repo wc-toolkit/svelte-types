@@ -89,7 +89,7 @@ generateCem({
 
 ## Implementation
 
-The generated file declares `svelteHTML.IntrinsicElements`, so Svelte projects only need to include the file in their TypeScript project.
+The generated file uses `declare global` to augment `svelteHTML.IntrinsicElements`, so Svelte projects only need to include the file in their TypeScript project.
 
 ### Option 1: Include the Generated File
 
@@ -201,6 +201,12 @@ import type { XButton } from "my-library/components/x-button/x-button.js";
 ```
 
 When `globalTypePath` or `componentTypePath` is not configured, types are read directly from the manifest.
+
+File-like module paths used for imported event-detail and referenced types are rewritten relative to `outdir`; bare package names and scoped package specifiers remain unchanged. A `componentTypePath` callback is used as-is.
+
+### CSS-only custom elements
+
+A declaration is treated as CSS-only when it has no named JavaScript export, has an invalid/equal-to-tag class name, or is marked with `HTMLUnknownElement`. Its generated type name comes from the tag (for example, `zd-flex` becomes `ZdFlex`), its element type is `HTMLElement`, and each attribute uses its manifest type. Bare union values such as `row | column` are emitted as string literals. CSS-only declarations need no class import and remain subject to `exclude`.
 
 ### Event Options
 
