@@ -387,7 +387,9 @@ function getComponentModulePath(
 }
 
 function normalizeImportPath(importPath: string, outdir?: string) {
-  if (importPath.startsWith("@")) return importPath;
+  if (importPath.startsWith("@") && !/\.[cm]?[jt]sx?$/.test(importPath)) {
+    return importPath;
+  }
   const looksLikeFilePath =
     path.isAbsolute(importPath) ||
     importPath.startsWith(".") ||

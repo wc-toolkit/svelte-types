@@ -231,6 +231,48 @@ describe("generateSvelteTypes", () => {
     ).toBe(false);
   });
 
+  it("normalizes scoped file paths while preserving bare package specifiers", () => {
+    const manifest = {
+      schemaVersion: "1.0.0",
+      readme: "",
+      modules: [
+        {
+          kind: "javascript-module" as const,
+          path: "@scope/components/button.ts",
+          declarations: [
+            {
+              kind: "class" as const,
+              name: "Button",
+              tagName: "x-button",
+              customElement: true,
+              events: [
+                { name: "done", type: { text: "CustomEvent<DoneDetail>" } },
+              ],
+            },
+          ],
+          exports: [
+            {
+              kind: "js" as const,
+              name: "Button",
+              declaration: {
+                name: "Button",
+                module: "@scope/components/button.ts",
+              },
+            },
+          ],
+        },
+      ],
+    } satisfies cem.Package;
+    const template = generateSvelteTypes(manifest, {
+      fileName: undefined,
+      outdir: "./types",
+    });
+
+    expect(template).toContain(
+      'import type { DoneDetail } from "../@scope/components/button.ts";',
+    );
+  });
+
   it("passes the component module path and emits modern event attributes", () => {
     const template = generateSvelteTypes(manifest, {
       fileName: undefined,
