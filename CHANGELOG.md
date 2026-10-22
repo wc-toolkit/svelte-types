@@ -1,5 +1,11 @@
 # @wc-toolkit/svelte-types
 
+## 1.0.5
+
+### Patch Changes
+
+- 9a5aaea: Avoid mutating input manifests, add Svelte global intrinsic element augmentation, resolve generated imports, and support CSS-only elements and event payload types.
+
 ## 1.0.4
 
 ### Patch Changes
